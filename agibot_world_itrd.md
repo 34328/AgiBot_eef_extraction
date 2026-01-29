@@ -14,7 +14,7 @@ Beta版本包含 1,001,552 条轨迹，总时长 2976.4 小时，覆盖 217 个�
 
 数据集大致分为四个部分，它是按照 **数据类型（Modalities）** 来分层，而不是按时间步（Episodes）来给每个任务分。
 
-```json
+```text
 data
 ├── task_info
 │   ├── task_327.json
@@ -114,7 +114,7 @@ data
 
 视频文件目录结构如下：
 
-```
+```JSON
 observations/
 └── 327/
     ├── 648642/
@@ -140,7 +140,7 @@ observations/
 
 这是要重点关注的文件，这里主要分为 action和 observation.state 两个部分，记录了机器人本体的状态，以及动作状态，可以直接转为lerobot的，也可以获取到各个关节的eef等。parse如下：
 
-```json
+```text
 action/
   effector/
     force       [shape=(0,), dtype=float32]
