@@ -1,7 +1,7 @@
 import os
 import sys
 
-import ik_solver
+from . import ik_solver
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -40,8 +40,8 @@ def mat2xyzrpy(mat):
 class IKFKSolver:
     def __init__(self, arm_init_joint_position, head_init_position, waist_init_position):
         self._solver = ik_solver.Solver(
-            config_path=os.path.join(current_dir, "urdf_solver", "solver.yaml"),
-            urdf_path=os.path.join(current_dir, "urdf_solver", "G1.urdf"),
+            config_path=os.path.join(current_dir, "solver.yaml"),
+            urdf_path=os.path.join(current_dir, "G1.urdf"),
             use_relaxed_ik=True,
             use_elbow=False,
         )
@@ -66,8 +66,8 @@ class IKFKSolver:
         """
         right_arm_to_gripper_transform = np.eye(4)
         right_arm_to_gripper_transform[2, 3] = 0.143
-        right_arm_to_gripper_transform[0, 0] = -1
-        right_arm_to_gripper_transform[1, 1] = -1
+        # right_arm_to_gripper_transform[0, 0] = -1
+        # right_arm_to_gripper_transform[1, 1] = -1
         left_arm_to_gripper_transform = np.eye(4)
         left_arm_to_gripper_transform[2, 3] = 0.143
         self.right_arm_to_gripper_transform = right_arm_to_gripper_transform

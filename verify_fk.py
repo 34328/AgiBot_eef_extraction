@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from ikfk_utils import IKFKSolver
+from urdf_solver.ikfk_utils import IKFKSolver
 
 # ============================================================================
 # 配置选项 - CONFIGURATION
@@ -42,8 +42,7 @@ solver = IKFKSolver(
 )
 
 # 选择一些帧进行验证
-num_samples = min(100, len(state_joint_positions))
-indices = np.linspace(0, len(state_joint_positions)-1, num_samples, dtype=int)
+indices = np.arange(len(state_joint_positions))
 
 # 存储结果
 computed_left_pos = []
@@ -56,7 +55,6 @@ computed_right_quat = []
 ground_truth_left_quat = []
 ground_truth_right_quat = []
 
-print(f"\nComputing FK for {num_samples} frames...")
 print(f"Mode: {EEF_MODE} ({'use gripper transform' if EEF_MODE == 'GRIPPER' else 'no transform'})")
 
 for idx in indices:
@@ -83,193 +81,76 @@ for idx in indices:
     gt_right_quat_wxyz = np.array([gt_right_quat_xyzw[3], gt_right_quat_xyzw[0], gt_right_quat_xyzw[1], gt_right_quat_xyzw[2]])
     
     # 处理四元数的符号歧义：q 和 -q 表示同一个旋转
-    # # 如果 dot product < 0，翻转 GT 四元数的符号
-    # if np.dot(left_xyzquat[3:], gt_left_quat_wxyz) < 0:
-    #     gt_left_quat_wxyz = -gt_left_quat_wxyz
-    # if np.dot(right_xyzquat[3:], gt_right_quat_wxyz) < 0:
-    #     gt_right_quat_wxyz = -gt_right_quat_wxyz
+    # 如果 dot product < 0，翻转 GT 四元数的符号
+    if np.dot(left_xyzquat[3:], gt_left_quat_wxyz) < 0:
+        gt_left_quat_wxyz = -gt_left_quat_wxyz
+    if np.dot(right_xyzquat[3:], gt_right_quat_wxyz) < 0:
+        gt_right_quat_wxyz = -gt_right_quat_wxyz
     
     ground_truth_left_quat.append(gt_left_quat_wxyz)  # [w, x, y, z]
     ground_truth_right_quat.append(gt_right_quat_wxyz)  # [w, x, y, z]
 
 # 转换为 numpy 数组
-computed_left_pos = np.array(computed_left_pos)
-computed_right_pos = np.array(computed_right_pos)
-ground_truth_left_pos = np.array(ground_truth_left_pos)
-ground_truth_right_pos = np.array(ground_truth_right_pos)
+computed_left_pos, computed_right_pos, ground_truth_left_pos, ground_truth_right_pos = map(
+    np.array,
+    (computed_left_pos, computed_right_pos, ground_truth_left_pos, ground_truth_right_pos),
+)
+computed_left_quat, computed_right_quat, ground_truth_left_quat, ground_truth_right_quat = map(
+    np.array,
+    (computed_left_quat, computed_right_quat, ground_truth_left_quat, ground_truth_right_quat),
+)
 
-computed_left_quat = np.array(computed_left_quat)
-computed_right_quat = np.array(computed_right_quat)
-ground_truth_left_quat = np.array(ground_truth_left_quat)
-ground_truth_right_quat = np.array(ground_truth_right_quat)
+# 单图展示：7 行（x, y, z, w, x, y, z）× 2 列（Left/Right）
+fig, axes = plt.subplots(7, 2, figsize=(16, 22), sharex=True)
+fig.suptitle('FK Verification: Computed vs Ground Truth (Position + Quaternion)', fontsize=16)
 
-# 计算位置误差
-left_pos_error = np.linalg.norm(computed_left_pos - ground_truth_left_pos, axis=1)
-right_pos_error = np.linalg.norm(computed_right_pos - ground_truth_right_pos, axis=1)
+pos_labels = ['X', 'Y', 'Z']
+quat_labels = ['w', 'x', 'y', 'z']
+row_labels = [f'Pos {p}' for p in pos_labels] + [f'Quat {q}' for q in quat_labels]
 
-
-
-# 计算四元数误差（角度差）
-def quaternion_angular_error(q1, q2):
-    """
-    Calculate angular error between two quaternions in degrees
-    q1, q2: quaternions in format [w, x, y, z] (scalar first)
-    """
-    # 确保归一化
-    q1 = q1 / np.linalg.norm(q1)
-    q2 = q2 / np.linalg.norm(q2)
-    
-    # 计算点积
-    dot_product = np.abs(np.dot(q1, q2))
-    # 限制在 [-1, 1] 范围内避免数值误差
-    dot_product = np.clip(dot_product, 0.0, 1.0)
-    
-    # 角度差 (弧度)
-    angle_rad = 2 * np.arccos(dot_product)
-    # 转换为度
-    angle_deg = np.degrees(angle_rad)
-    
-    return angle_deg
-
-# 计算每一帧的角度误差
-left_quat_errors = []
-right_quat_errors = []
-
-for i in range(len(computed_left_quat)):
-    left_error_deg = quaternion_angular_error(computed_left_quat[i], ground_truth_left_quat[i])
-    right_error_deg = quaternion_angular_error(computed_right_quat[i], ground_truth_right_quat[i])
-    left_quat_errors.append(left_error_deg)
-    right_quat_errors.append(right_error_deg)
-
-left_quat_errors = np.array(left_quat_errors)
-right_quat_errors = np.array(right_quat_errors)
-
-
-# 可视化位置
-fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-fig.suptitle('FK Verification: Computed vs Ground Truth (Position)', fontsize=16)
-
-# Left Arm - X, Y, Z
-for i, axis_name in enumerate(['X', 'Y', 'Z']):
+# Left arm columns
+for i, axis_name in enumerate(pos_labels):
     ax = axes[i, 0]
     ax.plot(indices, computed_left_pos[:, i], 'b-', label='Computed', alpha=0.7)
     ax.plot(indices, ground_truth_left_pos[:, i], 'r--', label='Ground Truth', alpha=0.7)
-    ax.set_xlabel('Frame Index')
-    ax.set_ylabel(f'Position (m)')
-    ax.set_title(f'Left Arm - {axis_name} Position')
+    ax.set_ylabel('Position (m)')
+    ax.set_title(f'Left Arm - {row_labels[i]}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-# Right Arm - X, Y, Z
-for i, axis_name in enumerate(['X', 'Y', 'Z']):
+for i, label in enumerate(quat_labels):
+    row = i + 3
+    ax = axes[row, 0]
+    ax.plot(indices, computed_left_quat[:, i], 'b-', label='Computed', alpha=0.7)
+    ax.plot(indices, ground_truth_left_quat[:, i], 'r--', label='Ground Truth', alpha=0.7)
+    ax.set_ylabel(f'Quat {label}')
+    ax.set_title(f'Left Arm - {row_labels[row]}')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+# Right arm columns
+for i, axis_name in enumerate(pos_labels):
     ax = axes[i, 1]
     ax.plot(indices, computed_right_pos[:, i], 'b-', label='Computed', alpha=0.7)
     ax.plot(indices, ground_truth_right_pos[:, i], 'r--', label='Ground Truth', alpha=0.7)
-    ax.set_xlabel('Frame Index')
-    ax.set_ylabel(f'Position (m)')
-    ax.set_title(f'Right Arm - {axis_name} Position')
+    ax.set_ylabel('Position (m)')
+    ax.set_title(f'Right Arm - {row_labels[i]}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-plt.tight_layout()
-plt.savefig('/home/unitree/Desktop/LZH/AgiBot_eef_extraction/fk_verification_positions.png', dpi=150)
-print(f"\nPosition plot saved to fk_verification_positions.png")
-
-# 位置误差图
-fig, axes = plt.subplots(2, 1, figsize=(12, 8))
-fig.suptitle('Position Error Over Time', fontsize=16)
-
-axes[0].plot(indices, left_pos_error * 1000, 'b-', linewidth=2)
-axes[0].set_xlabel('Frame Index')
-axes[0].set_ylabel('Error (mm)')
-axes[0].set_title('Left Arm Position Error')
-axes[0].grid(True, alpha=0.3)
-axes[0].axhline(y=left_pos_error.mean() * 1000, color='r', linestyle='--', 
-                label=f'Mean: {left_pos_error.mean()*1000:.2f} mm')
-axes[0].legend()
-
-axes[1].plot(indices, right_pos_error * 1000, 'b-', linewidth=2)
-axes[1].set_xlabel('Frame Index')
-axes[1].set_ylabel('Error (mm)')
-axes[1].set_title('Right Arm Position Error')
-axes[1].grid(True, alpha=0.3)
-axes[1].axhline(y=right_pos_error.mean() * 1000, color='r', linestyle='--',
-                label=f'Mean: {right_pos_error.mean()*1000:.2f} mm')
-axes[1].legend()
-
-plt.tight_layout()
-plt.savefig('/home/unitree/Desktop/LZH/AgiBot_eef_extraction/fk_verification_pos_errors.png', dpi=150)
-print(f"Position error plot saved to fk_verification_pos_errors.png")
-
-# 四元数分量对比图
-fig, axes = plt.subplots(4, 2, figsize=(15, 16))
-fig.suptitle('FK Verification: Computed vs Ground Truth (Quaternion)', fontsize=16)
-
-quat_labels = ['w', 'x', 'y', 'z']
-
-# Left Arm - w, x, y, z
 for i, label in enumerate(quat_labels):
-    ax = axes[i, 0]
-    ax.plot(indices, computed_left_quat[:, i], 'b-', label='Computed', alpha=0.7)
-    ax.plot(indices, ground_truth_left_quat[:, i], 'r--', label='Ground Truth', alpha=0.7)
-    ax.set_xlabel('Frame Index')
-    ax.set_ylabel(f'Quaternion {label}')
-    ax.set_title(f'Left Arm - Quaternion {label}')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-# Right Arm - w, x, y, z
-for i, label in enumerate(quat_labels):
-    ax = axes[i, 1]
+    row = i + 3
+    ax = axes[row, 1]
     ax.plot(indices, computed_right_quat[:, i], 'b-', label='Computed', alpha=0.7)
     ax.plot(indices, ground_truth_right_quat[:, i], 'r--', label='Ground Truth', alpha=0.7)
-    ax.set_xlabel('Frame Index')
-    ax.set_ylabel(f'Quaternion {label}')
-    ax.set_title(f'Right Arm - Quaternion {label}')
+    ax.set_ylabel(f'Quat {label}')
+    ax.set_title(f'Right Arm - {row_labels[row]}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-plt.tight_layout()
-plt.savefig('/home/unitree/Desktop/LZH/AgiBot_eef_extraction/fk_verification_quaternions.png', dpi=150)
-print(f"Quaternion comparison plot saved to fk_verification_quaternions.png")
-
-# 四元数误差图
-fig, axes = plt.subplots(2, 1, figsize=(12, 8))
-fig.suptitle('Orientation Error Over Time', fontsize=16)
-
-axes[0].plot(indices, left_quat_errors, 'b-', linewidth=2)
-axes[0].set_xlabel('Frame Index')
-axes[0].set_ylabel('Angular Error (degrees)')
-axes[0].set_title('Left Arm Orientation Error')
-axes[0].grid(True, alpha=0.3)
-axes[0].axhline(y=left_quat_errors.mean(), color='r', linestyle='--', 
-                label=f'Mean: {left_quat_errors.mean():.2f}°')
-axes[0].legend()
-
-axes[1].plot(indices, right_quat_errors, 'b-', linewidth=2)
-axes[1].set_xlabel('Frame Index')
-axes[1].set_ylabel('Angular Error (degrees)')
-axes[1].set_title('Right Arm Orientation Error')
-axes[1].grid(True, alpha=0.3)
-axes[1].axhline(y=right_quat_errors.mean(), color='r', linestyle='--',
-                label=f'Mean: {right_quat_errors.mean():.2f}°')
-axes[1].legend()
+for ax in axes[-1, :]:
+    ax.set_xlabel('Frame Index')
 
 plt.tight_layout()
-plt.savefig('/home/unitree/Desktop/LZH/AgiBot_eef_extraction/fk_verification_orientation.png', dpi=150)
-print(f"Orientation error plot saved to fk_verification_orientation.png")
-
-print("\n=== Verification Complete ===")
-if left_pos_error.mean() < 0.01 and right_pos_error.mean() < 0.01:
-    print("✓ Position FK computation looks GOOD! Mean error < 1cm")
-elif left_pos_error.mean() < 0.05 and right_pos_error.mean() < 0.05:
-    print("⚠ Position FK computation is acceptable but has some error (< 5cm)")
-else:
-    print("✗ Position FK computation has significant error!")
-
-if left_quat_errors.mean() < 1.0 and right_quat_errors.mean() < 1.0:
-    print("✓ Orientation FK computation looks GOOD! Mean error < 1°")
-elif left_quat_errors.mean() < 5.0 and right_quat_errors.mean() < 5.0:
-    print("⚠ Orientation FK computation is acceptable but has some error (< 5°)")
-else:
-    print("✗ Orientation FK computation has significant error!")
+plt.savefig('/home/unitree/桌面/agibot_world_eef/fk_verification_eef.png', dpi=300)
+print("\nPosition + quaternion comparison plot ready.")

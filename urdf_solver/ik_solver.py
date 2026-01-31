@@ -10,10 +10,9 @@ except Exception as exc:  # pragma: no cover - import-time guard
         "ik_solver.py requires pinocchio. Install pinocchio to use this solver."
     ) from exc
 
-try:
-    import yaml
-except Exception:  # pragma: no cover - optional dependency
-    yaml = None
+
+import yaml
+
 
 
 class RobotPart(Enum):
