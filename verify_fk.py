@@ -2,6 +2,7 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from scipy.spatial.transform import Rotation as R
 from urdf_solver.ikfk_utils import IKFKSolver
 
 # ============================================================================
@@ -44,107 +45,103 @@ solver = IKFKSolver(
 # 选择一些帧进行验证
 indices = np.arange(len(state_joint_positions))
 
-# 存储结果
-computed_left_pos = []
-computed_right_pos = []
-ground_truth_left_pos = []
-ground_truth_right_pos = []
+# 存储结果 - 位置
+gt_left_pos = []
+gt_right_pos = []
+fk_left_pos = []
+fk_right_pos = []
 
-computed_left_quat = []
-computed_right_quat = []
-ground_truth_left_quat = []
-ground_truth_right_quat = []
+# 存储结果 - RPY 姿态
+gt_left_rpy = []
+gt_right_rpy = []
+fk_left_rpy = []
+fk_right_rpy = []
 
 print(f"Mode: {EEF_MODE} ({'use gripper transform' if EEF_MODE == 'GRIPPER' else 'no transform'})")
 
 for idx in indices:
     arm_joints = state_joint_positions[idx]
     
-    # 使用 FK 计算 eef 位置和姿态
-    use_gripper_transform = (EEF_MODE == "GRIPPER")
-    left_xyzquat, right_xyzquat = solver.compute_abs_eef_in_base_quat(arm_joints, use_gripper_offset=use_gripper_transform)
+    # ========== Ground Truth (GT) ==========
+    # 位置
+    gt_left_pos.append(state_end_positions[idx, 0, :])  # left arm
+    gt_right_pos.append(state_end_positions[idx, 1, :])  # right arm
     
-    # 存储计算结果
-    computed_left_pos.append(left_xyzquat[:3])
-    computed_right_pos.append(right_xyzquat[:3])
-    computed_left_quat.append(left_xyzquat[3:])
-    computed_right_quat.append(right_xyzquat[3:])
-    
-    # 存储真实值
-    ground_truth_left_pos.append(state_end_positions[idx, 0, :])  # left arm
-    ground_truth_right_pos.append(state_end_positions[idx, 1, :])  # right arm
-    
-    # HDF5 四元数格式是 [x, y, z, w]，需要转换成 [w, x, y, z] 才能和 FK 输出对比
+    # 姿态：HDF5 四元数格式是 [x, y, z, w]，转换为 RPY
     gt_left_quat_xyzw = state_end_orientations[idx, 0, :]  # [x, y, z, w]
     gt_right_quat_xyzw = state_end_orientations[idx, 1, :]  # [x, y, z, w]
-    gt_left_quat_wxyz = np.array([gt_left_quat_xyzw[3], gt_left_quat_xyzw[0], gt_left_quat_xyzw[1], gt_left_quat_xyzw[2]])
-    gt_right_quat_wxyz = np.array([gt_right_quat_xyzw[3], gt_right_quat_xyzw[0], gt_right_quat_xyzw[1], gt_right_quat_xyzw[2]])
     
-    # 处理四元数的符号歧义：q 和 -q 表示同一个旋转
-    # 如果 dot product < 0，翻转 GT 四元数的符号
-    if np.dot(left_xyzquat[3:], gt_left_quat_wxyz) < 0:
-        gt_left_quat_wxyz = -gt_left_quat_wxyz
-    if np.dot(right_xyzquat[3:], gt_right_quat_wxyz) < 0:
-        gt_right_quat_wxyz = -gt_right_quat_wxyz
+    # 使用 scipy 转换 xyzw 四元数为 RPY (scalar_last 即 xyzw 格式)
+    gt_left_rpy.append(R.from_quat(gt_left_quat_xyzw, scalar_first=False).as_euler("xyz", degrees=False))
+    gt_right_rpy.append(R.from_quat(gt_right_quat_xyzw, scalar_first=False).as_euler("xyz", degrees=False))
     
-    ground_truth_left_quat.append(gt_left_quat_wxyz)  # [w, x, y, z]
-    ground_truth_right_quat.append(gt_right_quat_wxyz)  # [w, x, y, z]
+    # ========== FK 计算 ==========
+    use_gripper_transform = (EEF_MODE == "GRIPPER")
+    left_xyzrpy, right_xyzrpy = solver.compute_abs_eef_in_base(arm_joints, use_gripper_offset=use_gripper_transform)
+    
+    # 位置
+    fk_left_pos.append(left_xyzrpy[:3])
+    fk_right_pos.append(right_xyzrpy[:3])
+    
+    # 姿态 (RPY)
+    fk_left_rpy.append(left_xyzrpy[3:])
+    fk_right_rpy.append(right_xyzrpy[3:])
 
 # 转换为 numpy 数组
-computed_left_pos, computed_right_pos, ground_truth_left_pos, ground_truth_right_pos = map(
-    np.array,
-    (computed_left_pos, computed_right_pos, ground_truth_left_pos, ground_truth_right_pos),
-)
-computed_left_quat, computed_right_quat, ground_truth_left_quat, ground_truth_right_quat = map(
-    np.array,
-    (computed_left_quat, computed_right_quat, ground_truth_left_quat, ground_truth_right_quat),
-)
+gt_left_pos = np.array(gt_left_pos)
+gt_right_pos = np.array(gt_right_pos)
+fk_left_pos = np.array(fk_left_pos)
+fk_right_pos = np.array(fk_right_pos)
 
-# 单图展示：7 行（x, y, z, w, x, y, z）× 2 列（Left/Right）
-fig, axes = plt.subplots(7, 2, figsize=(16, 22), sharex=True)
-fig.suptitle('FK Verification: Computed vs Ground Truth (Position + Quaternion)', fontsize=16)
+gt_left_rpy = np.array(gt_left_rpy)
+gt_right_rpy = np.array(gt_right_rpy)
+fk_left_rpy = np.array(fk_left_rpy)
+fk_right_rpy = np.array(fk_right_rpy)
+
+# 单图展示：6 行（x, y, z, roll, pitch, yaw）× 2 列（Left/Right）
+fig, axes = plt.subplots(6, 2, figsize=(16, 20), sharex=True)
+fig.suptitle('FK Verification: GT vs FK (Position + RPY)', fontsize=16)
 
 pos_labels = ['X', 'Y', 'Z']
-quat_labels = ['w', 'x', 'y', 'z']
-row_labels = [f'Pos {p}' for p in pos_labels] + [f'Quat {q}' for q in quat_labels]
+rpy_labels = ['Roll', 'Pitch', 'Yaw']
 
 # Left arm columns
 for i, axis_name in enumerate(pos_labels):
     ax = axes[i, 0]
-    ax.plot(indices, computed_left_pos[:, i], 'b-', label='Computed', alpha=0.7)
-    ax.plot(indices, ground_truth_left_pos[:, i], 'r--', label='Ground Truth', alpha=0.7)
+    ax.plot(indices, gt_left_pos[:, i], 'r-', label='GT', alpha=0.7)
+    ax.plot(indices, fk_left_pos[:, i], 'b--', label='FK', alpha=0.7)
     ax.set_ylabel('Position (m)')
-    ax.set_title(f'Left Arm - {row_labels[i]}')
+    ax.set_title(f'Left Arm - Pos {axis_name}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-for i, label in enumerate(quat_labels):
+for i, label in enumerate(rpy_labels):
     row = i + 3
     ax = axes[row, 0]
-    ax.plot(indices, computed_left_quat[:, i], 'b-', label='Computed', alpha=0.7)
-    ax.plot(indices, ground_truth_left_quat[:, i], 'r--', label='Ground Truth', alpha=0.7)
-    ax.set_ylabel(f'Quat {label}')
-    ax.set_title(f'Left Arm - {row_labels[row]}')
+    ax.plot(indices, gt_left_rpy[:, i], 'r-', label='GT', alpha=0.7)
+    ax.plot(indices, fk_left_rpy[:, i], 'b--', label='FK', alpha=0.7)
+    ax.set_ylabel(f'{label} (rad)')
+    ax.set_title(f'Left Arm - {label}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
 # Right arm columns
 for i, axis_name in enumerate(pos_labels):
     ax = axes[i, 1]
-    ax.plot(indices, computed_right_pos[:, i], 'b-', label='Computed', alpha=0.7)
-    ax.plot(indices, ground_truth_right_pos[:, i], 'r--', label='Ground Truth', alpha=0.7)
+    ax.plot(indices, gt_right_pos[:, i], 'r-', label='GT', alpha=0.7)
+    ax.plot(indices, fk_right_pos[:, i], 'b--', label='FK', alpha=0.7)
     ax.set_ylabel('Position (m)')
-    ax.set_title(f'Right Arm - {row_labels[i]}')
+    ax.set_title(f'Right Arm - Pos {axis_name}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-for i, label in enumerate(quat_labels):
+for i, label in enumerate(rpy_labels):
     row = i + 3
     ax = axes[row, 1]
-    ax.plot(indices, computed_right_quat[:, i], 'b-', label='Computed', alpha=0.7)
-    ax.plot(indices, ground_truth_right_quat[:, i], 'r--', label='Ground Truth', alpha=0.7)
-    ax.set_ylabel(f'Quat {label}')
-    ax.set_title(f'Right Arm - {row_labels[row]}')
+    ax.plot(indices, gt_right_rpy[:, i], 'r-', label='GT', alpha=0.7)
+    ax.plot(indices, fk_right_rpy[:, i], 'b--', label='FK', alpha=0.7)
+    ax.set_ylabel(f'{label} (rad)')
+    ax.set_title(f'Right Arm - {label}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -152,5 +149,5 @@ for ax in axes[-1, :]:
     ax.set_xlabel('Frame Index')
 
 plt.tight_layout()
-plt.savefig('/home/unitree/桌面/agibot_world_eef/fk_verification_eef.png', dpi=300)
-print("\nPosition + quaternion comparison plot ready.")
+plt.savefig('verify_fk.png', dpi=300)
+print("\nPosition + RPY comparison plot saved to verify_fk.png")
