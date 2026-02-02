@@ -15,7 +15,7 @@ EEF_MODE = "GRIPPER"  # 👈 改这里！"GRIPPER" 或 "ARM"
 # ============================================================================
 
 # 读取 HDF5 文件
-path = Path("/mnt/raid0/AgiBot_Word_Beta/proprio_stats/358/654803/proprio_stats.h5")
+path = Path("/home/unitree/桌面/agibot_world_eef/sample_dataset/proprio_stats/384/655302/proprio_stats.h5")
 
 with h5py.File(path, "r") as f:
     # 读取状态数据

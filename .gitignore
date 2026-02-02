@@ -124,6 +124,7 @@ tmp/
 output/
 
 opt/
+test_output/
 episode_videos/
 galaxea_part1/
 galaxea_subtask_label/
