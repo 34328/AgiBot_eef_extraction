@@ -18,7 +18,7 @@ def get_task_info(task_json_path: str) -> dict:
 def load_depths(root_dir: str, camera_name: str):
     cam_path = Path(root_dir)
     all_imgs = sorted(list(cam_path.glob(f"{camera_name}*")))
-    return [np.array(Image.open(f)).astype(np.float32)[:, :, None] / 1000 for f in all_imgs]
+    return [np.array(Image.open(f)).astype(np.float32) / 1000 for f in all_imgs]
 
 
 def compute_gripper_center_from_fk(joint_positions, head_positions, waist_positions):
@@ -68,6 +68,9 @@ def load_local_dataset(
         # Load raw state data from HDF5
         raw_state_data = {}
         for key in AgiBotWorld_CONFIG["states"]:
+            # Skip head_depth - it's loaded separately from depth images folder (line 106-108)
+            if key == "head_depth":
+                continue
             # Handle end.eef specially - need to merge position and orientation
             if key == "end.eef":
                 # Read joint/head/waist states and compute gripper center via FK
@@ -118,7 +121,7 @@ def load_local_dataset(
     
     frames = [
         {
-            **({"observation.images.head_depth": depth_imgs[i]} if save_depth else {}),
+            **({"observation.states.head_depth": depth_imgs[i]} if save_depth else {}),
             **{key: value[i] for key, value in state.items()},
             **{key: value[i] for key, value in action.items()},
         }

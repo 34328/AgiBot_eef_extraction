@@ -10,11 +10,6 @@ AgiBotWorld_BETA_GRIPPER_CONFIG = {
             "shape": (768, 960, 3),
             "names": ["height", "width", "rgb"],
         },
-        "head_depth": {
-            "dtype": "image",
-            "shape": (480, 640, 1),
-            "names": ["height", "width", "channel"],
-        },
         "head_left_fisheye": {
             "dtype": "video",
             "shape": (768, 960, 3),
@@ -77,6 +72,11 @@ AgiBotWorld_BETA_GRIPPER_CONFIG = {
             },
         },
         "waist.position": {"dtype": "float32", "shape": (2,), "names": {"motors": ["pitch", "lift"]}},
+        "head_depth": {
+            "dtype": "float32",
+            "shape": (480, 640),
+            "names": ["height", "width"],
+        },
     },
     "actions": {
         "effector.position": {
@@ -123,11 +123,6 @@ AgiBotWorld_BETA_DEXHAND_CONFIG = {
             "dtype": "video",
             "shape": (768, 960, 3),
             "names": ["height", "width", "rgb"],
-        },
-        "head_depth": {
-            "dtype": "image",
-            "shape": (480, 640, 1),
-            "names": ["height", "width", "channel"],
         },
         "head_left_fisheye": {
             "dtype": "video",

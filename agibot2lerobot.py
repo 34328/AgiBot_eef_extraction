@@ -153,7 +153,7 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
         shutil.rmtree(local_dir)
 
     if not save_depth:
-        features.pop("observation.images.head_depth")
+        features.pop("observation.states.head_depth")
 
     dataset: AgiBotDataset = AgiBotDataset.create(
         repo_id=json_file.stem,
@@ -167,7 +167,8 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
 
     all_subdir_eids = sorted([int(Path(path).name) for path in all_subdir])
 
-    for eid in all_subdir_eids:
+    total_episodes = len(all_subdir_eids)
+    for idx, eid in enumerate(all_subdir_eids, 1):
         if eid not in task_info:
             raise ValueError(f"{json_file.stem}, episode_{eid} not in task_info.json! Missing episode metadata.")
         
@@ -194,7 +195,7 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
             dataset.add_frame(frame_data)
             if save_depth:
                 # Drop depth array reference after it's copied into episode_buffer.
-                frame_data.pop("observation.images.head_depth", None)
+                frame_data.pop("observation.states.head_depth", None)
         # Release list to reduce peak memory before stacking in save_episode.
         del frames
 
@@ -205,7 +206,7 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
             dataset.episode_buffer = None
             # continue
         gc.collect()
-        print(f"process done for {json_file.stem}, episode_id {eid}, len {frame_nums}")
+        print(f"[{idx}/{total_episodes}] process done for {json_file.stem}, episode_id {eid}, len {frame_nums}")
 
 
 def main(
