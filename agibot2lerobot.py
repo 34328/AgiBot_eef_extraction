@@ -181,7 +181,7 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
         )
 
         _, frames, videos = raw_dataset
-
+        frame_nums = len(frames)
         # Check if all video files exist
         missing_videos = [str(video_path) for video_path in videos.values() if not video_path.exists()]
         if missing_videos:
@@ -192,6 +192,11 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
         for frame_data in frames:
             frame_data["task"] = task_instruction
             dataset.add_frame(frame_data)
+            if save_depth:
+                # Drop depth array reference after it's copied into episode_buffer.
+                frame_data.pop("observation.images.head_depth", None)
+        # Release list to reduce peak memory before stacking in save_episode.
+        del frames
 
         try:
             dataset.save_episode(videos=videos, action_config=action_config)
@@ -200,7 +205,7 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
             dataset.episode_buffer = None
             # continue
         gc.collect()
-        print(f"process done for {json_file.stem}, episode_id {eid}, len {len(frames)}")
+        print(f"process done for {json_file.stem}, episode_id {eid}, len {frame_nums}")
 
 
 def main(

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torchvision
 from lerobot.datasets.compute_stats import auto_downsample_height_width, get_feature_stats, sample_indices
-
+# from lerobot.datasets.compute_stats import _assert_type_and_shape # 修改这里代码
 torchvision.set_video_backend("pyav")
 
 
