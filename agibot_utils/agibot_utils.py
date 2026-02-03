@@ -103,9 +103,14 @@ def load_local_dataset(
     ob_dir = Path(src_path) / f"observations/{task_id}/{episode_id}"
     proprio_dir = Path(src_path) / f"proprio_stats/{task_id}/{episode_id}"
     params_dir = Path(src_path) / f"parameters/{task_id}/{episode_id}/camera"
+    # Fallback: server path has extra 'parameters' layer
+    if not params_dir.exists():
+        params_dir = Path(src_path) / f"parameters/{task_id}/{episode_id}/parameters/camera"
     
     # Load camera parameters
     camera_names = [key for key in AgiBotWorld_CONFIG["images"] if "depth" not in key]
+    if not params_dir.exists():
+        raise FileNotFoundError(f"Camera parameters directory not found: {params_dir}")
     camera_params = load_camera_params(params_dir, camera_names)
 
     state = {}
