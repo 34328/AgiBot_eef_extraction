@@ -21,6 +21,46 @@ def load_depths(root_dir: str, camera_name: str):
     return [np.array(Image.open(f)).astype(np.float32) / 1000 for f in all_imgs]
 
 
+def load_camera_params(params_dir: Path, camera_names: list) -> dict:
+    """
+    Load camera intrinsic and extrinsic parameters for all cameras.
+    
+    Args:
+        params_dir: Path to the camera parameters directory
+        camera_names: List of camera names (e.g., ["head", "hand_left", ...])
+    
+    Returns:
+        Dictionary with camera parameters for each camera
+    """
+    camera_params = {}
+    
+    for cam_name in camera_names:
+        intrinsic_file = params_dir / f"{cam_name}_intrinsic_params.json"
+        extrinsic_file = params_dir / f"{cam_name}_extrinsic_params.json"
+        
+        cam_params = {}
+        
+        # Load intrinsic parameters
+        if intrinsic_file.exists():
+            with open(intrinsic_file, "r") as f:
+                intrinsic_data = json.load(f)["intrinsic"]
+                cam_params["intrinsic"] = intrinsic_data
+        
+        # Load extrinsic parameters
+        if extrinsic_file.exists():
+            with open(extrinsic_file, "r") as f:
+                extrinsic_data = json.load(f)["extrinsic"]
+                cam_params["extrinsic"] = {
+                    "rotation_matrix": extrinsic_data["rotation_matrix"],
+                    "translation_vector": extrinsic_data["translation_vector"],
+                }
+        
+        if cam_params:
+            camera_params[cam_name] = cam_params
+    
+    return camera_params
+
+
 def compute_gripper_center_from_fk(joint_positions, head_positions, waist_positions):
     """
     Compute gripper center pose from joint states using FK.
@@ -58,10 +98,15 @@ def compute_gripper_center_from_fk(joint_positions, head_positions, waist_positi
 
 def load_local_dataset(
     episode_id: int, src_path: str, task_id: int, save_depth: bool, AgiBotWorld_CONFIG: dict
-) -> tuple[list, dict]:
+) -> tuple[list, dict, dict]:
     """Load local dataset and return a dict with observations and actions"""
     ob_dir = Path(src_path) / f"observations/{task_id}/{episode_id}"
     proprio_dir = Path(src_path) / f"proprio_stats/{task_id}/{episode_id}"
+    params_dir = Path(src_path) / f"parameters/{task_id}/{episode_id}/camera"
+    
+    # Load camera parameters
+    camera_names = [key for key in AgiBotWorld_CONFIG["images"] if "depth" not in key]
+    camera_params = load_camera_params(params_dir, camera_names)
 
     state = {}
     with h5py.File(proprio_dir / "proprio_stats.h5", "r") as f:
@@ -135,4 +180,4 @@ def load_local_dataset(
         for key in AgiBotWorld_CONFIG["images"]
         if "depth" not in key
     }
-    return episode_id, frames, videos
+    return episode_id, frames, videos, camera_params

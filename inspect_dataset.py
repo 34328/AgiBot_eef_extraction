@@ -54,7 +54,7 @@ def inspect_dataset(dataset_path: str):
     # Sample one data point
     print("\n📦 Sample Data (First Frame):")
     print("-" * 40)
-    sample = dataset[100]
+    sample = dataset[0]
     for key, value in sample.items():
         if hasattr(value, 'shape'):
             print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
@@ -83,6 +83,35 @@ def inspect_dataset(dataset_path: str):
     except Exception as e:
         print(f"  Error reading tasks: {e}")
         print(f"  Raw data: {tasks_data}")
+    
+    # Print episode metadata (action_config and camera_params)
+    print("\n📋 Episode Metadata (Episode 0):")
+    print("-" * 40)
+    try:
+        episode_data = dataset.meta.episodes[0]
+        
+        # Print action_config
+        if 'action_config' in episode_data:
+            action_config = episode_data['action_config']
+            print(f"  action_config: {len(action_config)} segments")
+            for i, action in enumerate(action_config[:3]):  # Show first 3
+                print(f"    [{i}] {action}")
+            if len(action_config) > 3:
+                print(f"    ... and {len(action_config) - 3} more")
+        
+        # Print one camera's params
+        if 'camera_params' in episode_data:
+            import json
+            camera_params = episode_data['camera_params']
+            print(f"\n  camera_params: {len(camera_params)} cameras")
+            print(f"    Cameras: {list(camera_params.keys())}")
+            # Show sample camera (head) - full params
+            sample_cam = 'head' if 'head' in camera_params else list(camera_params.keys())[0]
+            cam_data = camera_params[sample_cam]
+            print(f"\n    Sample ({sample_cam}):")
+            print(json.dumps(cam_data, indent=6))
+    except Exception as e:
+        print(f"  Error reading episode metadata: {e}")
     
     print("\n" + "=" * 80)
     print("Inspection complete!")

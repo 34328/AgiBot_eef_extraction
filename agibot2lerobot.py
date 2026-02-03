@@ -51,7 +51,7 @@ class AgiBotDataset(LeRobotDataset):
 
         self.episode_buffer["size"] += 1
 
-    def save_episode(self, videos: dict, action_config: list, episode_data: dict | None = None) -> None:
+    def save_episode(self, videos: dict, action_config: list, camera_params: dict = None, episode_data: dict | None = None) -> None:
         """
         This will save to disk the current episode in self.episode_buffer.
 
@@ -101,8 +101,10 @@ class AgiBotDataset(LeRobotDataset):
                 ep_metadata.update(self._save_episode_video(video_key, episode_index))
 
         # `meta.save_episode` be executed after encoding the videos
-        # add action_config to current episode
+        # add action_config and camera_params to current episode
         ep_metadata.update({"action_config": action_config})
+        if camera_params:
+            ep_metadata.update({"camera_params": camera_params})
         self.meta.save_episode(episode_index, episode_length, episode_tasks, ep_stats, ep_metadata)
 
         if has_video_keys and use_batched_encoding:
@@ -181,7 +183,7 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
             AgiBotWorld_CONFIG=agibot_world_config,
         )
 
-        _, frames, videos = raw_dataset
+        _, frames, videos, camera_params = raw_dataset
         frame_nums = len(frames)
         # Check if all video files exist
         missing_videos = [str(video_path) for video_path in videos.values() if not video_path.exists()]
@@ -200,7 +202,7 @@ def save_as_lerobot_dataset(agibot_world_config, task: tuple[Path, Path], save_d
         del frames
 
         try:
-            dataset.save_episode(videos=videos, action_config=action_config)
+            dataset.save_episode(videos=videos, action_config=action_config, camera_params=camera_params)
         except Exception as e:
             print(f"{json_file.stem}, episode_{eid}: there are some corrupted mp4s\nException details: {str(e)}")
             dataset.episode_buffer = None
