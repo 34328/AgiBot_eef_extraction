@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgiBot EEF Video Browser</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div>
+          <div class="brand-title">AgiBot EEF</div>
+          <div class="brand-sub">Multi-View Dataset Player</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label class="field">
+          <span class="label">Task</span>
+          <select id="taskSelect" class="select">
+            <option value="">Loading...</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="label">Episode</span>
+          <select id="episodeSelect" class="select" disabled>
+            <option value="">Select a task first</option>
+          </select>
+        </label>
+
+        <div class="meta">
+          <div class="meta-row">
+            <span class="dot"></span>
+            <span id="statusText">Ready</span>
+          </div>
+          <div class="meta-row small" id="countText"></div>
+        </div>
+      </div>
+
+      <div class="hint">
+        Tip: use the timeline controls to scrub each view precisely.
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="header">
+        <h1>Three-View Playback</h1>
+        <p>Choose a task and episode to load head, left-hand, and right-hand cameras.</p>
+      </div>
+
+      <section class="grid">
+        <div class="card card--head">
+          <div class="card-title">Head Camera</div>
+          <video id="videoHead" controls preload="metadata"></video>
+          <div class="timeline" id="timeline">
+            <div class="timeline-track">
+              <div class="timeline-fill" id="timelineFill"></div>
+              <div class="timeline-thumb" id="timelineThumb"></div>
+            </div>
+            <div class="timeline-tooltip" id="timelineTooltip">0/0</div>
+          </div>
+        </div>
+        <div class="card card--left">
+          <div class="card-title">Left Hand</div>
+          <video id="videoLeft" preload="metadata"></video>
+        </div>
+        <div class="card card--right">
+          <div class="card-title">Right Hand</div>
+          <video id="videoRight" preload="metadata"></video>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

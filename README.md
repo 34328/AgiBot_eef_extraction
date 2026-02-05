@@ -13,6 +13,7 @@ conda install -c conda-forge pinocchio
 
 pip install lerobot h5py
 pip install -U "ray[default]"
+pip install flask
 ```
 
 ## ⚠️ 有问题的任务

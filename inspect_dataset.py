@@ -13,7 +13,7 @@ def inspect_dataset(dataset_path: str):
     print("=" * 80)
     
     # Load the dataset
-    dataset = LeRobotDataset(repo_id=Path(dataset_path).name, root=dataset_path)
+    dataset = LeRobotDataset(repo_id=Path(dataset_path).name, root=dataset_path, episodes=[0])
     
     # Print basic dataset info
     print("\n📊 Basic Dataset Information:")
@@ -118,5 +118,5 @@ def inspect_dataset(dataset_path: str):
 
 
 if __name__ == "__main__":
-    dataset_path = "test_output/agibotworld/task_357"
+    dataset_path = "/mnt/raid0/AgiBot2Lerobot/lerobot_v3.0/agibotworld/task_327"
     inspect_dataset(dataset_path)
