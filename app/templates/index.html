@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AgiBot EEF Video Browser</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
+
 <body>
   <div class="page">
     <aside class="sidebar">
@@ -73,6 +75,17 @@
             </div>
             <div class="timeline-tooltip" id="timelineTooltip">0/0</div>
           </div>
+          <!-- AI Score Section -->
+          <div class="ai-score-section">
+            <button class="ai-score-btn" id="aiScoreBtn" disabled>
+              <span class="ai-score-btn-icon">🤖</span>
+              <span class="ai-score-btn-text">AI Score</span>
+            </button>
+            <div class="ai-score-result" id="aiScoreResult" style="display: none;">
+              <span class="ai-score-label">Score:</span>
+              <span class="ai-score-value" id="aiScoreValue">--</span>
+            </div>
+          </div>
         </div>
         <div class="card card--left">
           <div class="card-title">Left Hand</div>
@@ -88,4 +101,5 @@
 
   <script src="/static/app.js"></script>
 </body>
+
 </html>

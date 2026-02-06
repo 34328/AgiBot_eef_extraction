@@ -17,6 +17,11 @@ const taskNameText = document.getElementById("taskNameText");
 const initSceneText = document.getElementById("initSceneText");
 const actionsContainer = document.getElementById("actionsContainer");
 
+// AI Score elements
+const aiScoreBtn = document.getElementById("aiScoreBtn");
+const aiScoreResult = document.getElementById("aiScoreResult");
+const aiScoreValue = document.getElementById("aiScoreValue");
+
 const timeline = document.getElementById("timeline");
 const timelineFill = document.getElementById("timelineFill");
 const timelineThumb = document.getElementById("timelineThumb");
@@ -102,6 +107,11 @@ const loadVideos = (task, episode) => {
 
   loadMeta(task, episode);
   loadTaskInfo(task, episode);
+
+  // Enable AI score button and reset score display
+  aiScoreBtn.disabled = false;
+  resetAiScore();
+  aiScoreBtn.disabled = false;
 };
 
 const loadTaskInfo = async (task, episode) => {
@@ -143,6 +153,46 @@ const loadTaskInfo = async (task, episode) => {
 
 const hideTaskInfo = () => {
   taskInfoPanel.style.display = "none";
+};
+
+// AI Score functions
+const resetAiScore = () => {
+  aiScoreBtn.disabled = true;
+  aiScoreBtn.classList.remove("loading");
+  aiScoreResult.style.display = "none";
+  aiScoreValue.textContent = "--";
+};
+
+const requestAiScore = async () => {
+  const task = taskSelect.value;
+  const episode = episodeSelect.value;
+  if (!task || !episode) return;
+
+  // Set loading state
+  aiScoreBtn.classList.add("loading");
+  aiScoreBtn.querySelector(".ai-score-btn-text").textContent = "Scoring...";
+  aiScoreResult.style.display = "none";
+
+  try {
+    const res = await fetch(`/api/score/${task}/${episode}`, { method: "POST" });
+    const data = await res.json();
+
+    if (res.ok && data.score !== undefined) {
+      aiScoreValue.textContent = data.score;
+      aiScoreResult.style.display = "flex";
+    } else {
+      aiScoreValue.textContent = "Error";
+      aiScoreResult.style.display = "flex";
+      console.error("AI Score error:", data.error);
+    }
+  } catch (err) {
+    aiScoreValue.textContent = "Failed";
+    aiScoreResult.style.display = "flex";
+    console.error("AI Score request failed:", err);
+  } finally {
+    aiScoreBtn.classList.remove("loading");
+    aiScoreBtn.querySelector(".ai-score-btn-text").textContent = "AI Score";
+  }
 };
 
 const getTimelineInfo = () => {
@@ -313,6 +363,9 @@ episodeSelect.addEventListener("change", () => {
 
 bindSyncEvents();
 bindTimelineEvents();
+
+// AI Score button event
+aiScoreBtn.addEventListener("click", requestAiScore);
 
 loadTasks().catch(() => {
   setStatus("Failed to load tasks");

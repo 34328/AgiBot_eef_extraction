@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from functools import lru_cache
 import json
 import subprocess
-from flask import Flask, jsonify, render_template, send_file, abort
+from flask import Flask, jsonify, render_template, send_file, abort, request
 
 from generate_eef_video import get_eef_video_path
+
+# 添加 agibot_utils 到路径
+sys.path.insert(0, str(Path(__file__).parent.parent / "agibot_utils"))
+from video_marking import score_video
 
 # 数据根目录
 DATA_ROOT = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta")
@@ -230,6 +235,29 @@ def api_video(task: str, episode: str, view: str):
 @app.route("/api/meta/<task>/<episode>")
 def api_meta(task: str, episode: str):
     return jsonify(_cached_meta(task, episode))
+
+
+@app.route("/api/score/<task>/<episode>", methods=["POST"])
+def api_score(task: str, episode: str):
+    """调用 AI 对原始 head 视频进行评分。"""
+    task_dir = BASE_DIR / task
+    episode_dir = task_dir / episode
+    if not _is_safe_dir(episode_dir) or not episode_dir.is_dir():
+        return jsonify({"error": "Episode not found"}), 404
+    
+    # 使用原始视频（不带 EEF 标注）
+    video_path = episode_dir / "videos" / VIDEO_NAMES["head"]
+    if not video_path.exists():
+        return jsonify({"error": "Video not found"}), 404
+    
+    try:
+        score = score_video(str(video_path), verbose=True)
+        if score is not None:
+            return jsonify({"score": score})
+        else:
+            return jsonify({"error": "Failed to get score from AI"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
