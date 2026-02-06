@@ -16,6 +16,14 @@ pip install -U "ray[default]"
 pip install flask
 ```
 
+## 🎬 可视化
+
+![alt text](asset/image.png)
+左侧上方选择task和episode，下册是任务描述，与task_XXX.json 中对应。右侧是三个视角的图像，其中主视角HEAD已经将offset到夹爪中心的eef给标上了。
+```
+python app/server.py
+```
+
 ## ⚠️ 有问题的任务
 
 | (Gripper) Task ID | (Some episodes) Reason | Fixed By |

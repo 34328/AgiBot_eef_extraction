@@ -11,6 +11,12 @@ let isSyncing = false;
 let metaCache = {};
 let isScrubbing = false;
 
+// Task Info elements
+const taskInfoPanel = document.getElementById("taskInfoPanel");
+const taskNameText = document.getElementById("taskNameText");
+const initSceneText = document.getElementById("initSceneText");
+const actionsContainer = document.getElementById("actionsContainer");
+
 const timeline = document.getElementById("timeline");
 const timelineFill = document.getElementById("timelineFill");
 const timelineThumb = document.getElementById("timelineThumb");
@@ -95,6 +101,48 @@ const loadVideos = (task, episode) => {
   });
 
   loadMeta(task, episode);
+  loadTaskInfo(task, episode);
+};
+
+const loadTaskInfo = async (task, episode) => {
+  try {
+    const res = await fetch(`/api/task_info/${task}/${episode}`);
+    if (!res.ok) {
+      taskInfoPanel.style.display = "none";
+      return;
+    }
+    const data = await res.json();
+
+    // Display task name
+    taskNameText.textContent = data.task_name || "Unknown Task";
+
+    // Display init scene text
+    initSceneText.textContent = data.init_scene_text || "";
+    initSceneText.style.display = data.init_scene_text ? "block" : "none";
+
+    // Display actions
+    actionsContainer.innerHTML = "";
+    if (data.actions && data.actions.length > 0) {
+      data.actions.forEach((action) => {
+        const actionItem = document.createElement("div");
+        actionItem.className = "action-item";
+        actionItem.innerHTML = `
+          <span class="action-frames">Frame ${action.start_frame} → ${action.end_frame}</span>
+          <span class="action-text">${action.action_text}</span>
+          <span class="action-skill">${action.skill}</span>
+        `;
+        actionsContainer.appendChild(actionItem);
+      });
+    }
+
+    taskInfoPanel.style.display = "flex";
+  } catch {
+    taskInfoPanel.style.display = "none";
+  }
+};
+
+const hideTaskInfo = () => {
+  taskInfoPanel.style.display = "none";
 };
 
 const getTimelineInfo = () => {
@@ -244,6 +292,7 @@ const loadMeta = async (task, episode) => {
 taskSelect.addEventListener("change", () => {
   const task = taskSelect.value;
   clearVideos();
+  hideTaskInfo();
   if (!task) {
     episodeSelect.disabled = true;
     episodeSelect.innerHTML = "<option value=\"\">Select a task first</option>";

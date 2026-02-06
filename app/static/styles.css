@@ -24,7 +24,7 @@ body {
 .page {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 380px 1fr;
 }
 
 .sidebar {
@@ -137,6 +137,109 @@ body {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.4;
+}
+
+/* Task Info Panel */
+.task-info-panel {
+  background: var(--panel);
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 18px 40px var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 380px);
+  overflow-y: auto;
+}
+
+/* Custom scrollbar for task-info-panel */
+.task-info-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.task-info-panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.task-info-panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%);
+  border-radius: 10px;
+}
+
+.task-info-panel::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #6be0ff 0%, #ffc266 100%);
+}
+
+.task-info-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-info-icon {
+  font-size: 18px;
+}
+
+.task-info-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1.4;
+}
+
+.task-info-scene {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  padding: 10px 12px;
+  background: rgba(9, 12, 18, 0.6);
+  border-radius: 12px;
+  white-space: pre-wrap;
+}
+
+.task-info-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: rgba(77, 210, 255, 0.08);
+  border-radius: 10px;
+  border-left: 3px solid var(--accent);
+}
+
+.action-frames {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.action-text {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.action-skill {
+  display: inline-block;
+  font-size: 11px;
+  color: #091016;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--accent-2) 0%, #ff8c42 100%);
+  padding: 3px 10px;
+  border-radius: 12px;
+  width: fit-content;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .content {

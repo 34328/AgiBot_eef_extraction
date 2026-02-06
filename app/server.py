@@ -145,6 +145,60 @@ def api_episodes(task: str):
     return jsonify({"episodes": _cached_episodes(task)})
 
 
+@lru_cache(maxsize=256)
+def _load_task_info_file(task: str) -> dict | None:
+    """加载 task_info JSON 文件。"""
+    task_info_path = DATA_ROOT / "task_info" / f"task_{task}.json"
+    if not task_info_path.exists():
+        return None
+    try:
+        with open(task_info_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+@app.route("/api/task_info/<task>/<episode>")
+def api_task_info(task: str, episode: str):
+    """获取指定 task 和 episode 的详细信息。"""
+    task_data = _load_task_info_file(task)
+    if task_data is None:
+        return jsonify({"error": "Task info not found"}), 404
+    
+    # task_data 是一个 list，每个元素对应一个 episode
+    episode_id = int(episode)
+    episode_info = None
+    
+    # 查找匹配的 episode
+    for item in task_data:
+        if item.get("episode_id") == episode_id:
+            episode_info = item
+            break
+    
+    if episode_info is None:
+        return jsonify({"error": "Episode not found in task info"}), 404
+    
+    # 构建响应
+    result = {
+        "task_name": episode_info.get("task_name", ""),
+        "init_scene_text": episode_info.get("init_scene_text", ""),
+        "actions": []
+    }
+    
+    # 提取 action_config
+    label_info = episode_info.get("label_info", {})
+    action_config = label_info.get("action_config", [])
+    for action in action_config:
+        result["actions"].append({
+            "start_frame": action.get("start_frame", 0),
+            "end_frame": action.get("end_frame", 0),
+            "action_text": action.get("action_text", ""),
+            "skill": action.get("skill", "")
+        })
+    
+    return jsonify(result)
+
+
 @app.route("/api/video/<task>/<episode>/<view>")
 def api_video(task: str, episode: str, view: str):
     if view not in VIDEO_NAMES:
