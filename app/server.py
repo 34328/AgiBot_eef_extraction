@@ -7,7 +7,12 @@ import json
 import subprocess
 from flask import Flask, jsonify, render_template, send_file, abort
 
-BASE_DIR = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta/observations")
+from generate_eef_video import get_eef_video_path
+
+# 数据根目录
+DATA_ROOT = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta")
+BASE_DIR = DATA_ROOT / "observations"
+
 VIDEO_NAMES = {
     "head": "head_color.mp4",
     "left": "hand_left_color.mp4",
@@ -149,6 +154,18 @@ def api_video(task: str, episode: str, view: str):
     if not _is_safe_dir(episode_dir) or not episode_dir.is_dir():
         abort(404)
 
+    # 对于 head 视角，优先使用带 EEF 标注的视频
+    if view == "head":
+        eef_video_path = get_eef_video_path(
+            data_root=DATA_ROOT,
+            task_id=int(task),
+            episode_id=int(episode),
+            camera_name="head",
+        )
+        if eef_video_path and eef_video_path.exists():
+            return send_file(eef_video_path, mimetype="video/mp4", conditional=True)
+    
+    # 回退到原始视频
     video_path = episode_dir / "videos" / VIDEO_NAMES[view]
     if not video_path.exists():
         abort(404)
