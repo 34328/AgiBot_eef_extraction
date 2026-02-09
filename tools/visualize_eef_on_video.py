@@ -56,8 +56,8 @@ def load_extrinsics(path: Path):
 def load_eef(path: Path):
     """加载所有帧的 EEF 位置和姿态。"""
     with h5py.File(path, "r") as f:
-        pos = np.array(f["action/end/position"], dtype=np.float64)
-        quat = np.array(f["action/end/orientation"], dtype=np.float64) if "action/end/orientation" in f else None
+        pos = np.array(f["state/end/position"], dtype=np.float64)
+        quat = np.array(f["state/end/orientation"], dtype=np.float64) if "state/end/orientation" in f else None
     return pos, quat
 
 

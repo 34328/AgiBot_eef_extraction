@@ -13,7 +13,7 @@ def inspect_dataset(dataset_path: str):
     print("=" * 80)
     
     # Load the dataset
-    dataset = LeRobotDataset(repo_id=Path(dataset_path).name, root=dataset_path, episodes=[0])
+    dataset = LeRobotDataset(repo_id=Path(dataset_path).name, root=dataset_path, episodes=[208])
     
     # Print basic dataset info
     print("\n📊 Basic Dataset Information:")
@@ -33,7 +33,10 @@ def inspect_dataset(dataset_path: str):
         names = feature.get("names", None)
         print(f"\n  🔑 {key}:")
         print(f"      dtype: {dtype}")
-        print(f"      shape: {shape}")
+        if isinstance(shape, (list, tuple)):
+            print(f"      shape: {(dataset.num_frames,) + tuple(shape)}")
+        else:
+            print(f"      shape: {shape}")
         if names:
             print(f"      names: {names}")
     
