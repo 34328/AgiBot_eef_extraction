@@ -368,6 +368,9 @@ _active_processes: dict[str, tuple[subprocess.Popen, subprocess.Popen]] = {}
 _active_lock = threading.Lock()
 _MAX_CONCURRENT_GENERATIONS = 2  # 最多同时生成2个视频，防止资源耗尽
 
+# 跟踪已启动线程但尚未注册进程的任务（防止重复启动线程）
+_pending_keys: set[str] = set()
+
 # 跟踪失败的生成任务，储存错误信息
 _failed_generations: dict[str, str] = {}
 
@@ -440,9 +443,9 @@ def check_eef_cache(
 
 
 def is_generating(process_key: str) -> bool:
-    """检查指定的视频是否正在生成中。"""
+    """检查指定的视频是否正在生成中（包括已启动但未注册的任务）。"""
     with _active_lock:
-        return process_key in _active_processes
+        return process_key in _active_processes or process_key in _pending_keys
 
 
 def get_generation_error(process_key: str) -> Optional[str]:
@@ -467,23 +470,28 @@ def _background_generate(
     paths = _build_paths(data_root, task_id, episode_id, camera_name)
     process_key = f"{task_id}/{episode_id}/{camera_name}"
     
-    # 清除之前的失败记录
-    clear_generation_error(process_key)
-    
-    success, error_msg = generate_eef_video(
-        video_path=paths["video"],
-        h5_path=paths["h5"],
-        intrinsic_path=paths["intrinsic"],
-        extrinsic_path=paths["extrinsic"],
-        output_path=paths["output"],
-        verbose=True,
-        process_key=process_key,
-    )
-    
-    # 如果生成失败，记录错误信息
-    if not success and not paths["output"].exists():
+    try:
+        # 清除之前的失败记录
+        clear_generation_error(process_key)
+        
+        success, error_msg = generate_eef_video(
+            video_path=paths["video"],
+            h5_path=paths["h5"],
+            intrinsic_path=paths["intrinsic"],
+            extrinsic_path=paths["extrinsic"],
+            output_path=paths["output"],
+            verbose=True,
+            process_key=process_key,
+        )
+        
+        # 如果生成失败，记录错误信息
+        if not success and not paths["output"].exists():
+            with _active_lock:
+                _failed_generations[process_key] = error_msg or "未知错误"
+    finally:
+        # 无论成功失败，都从 pending 中移除
         with _active_lock:
-            _failed_generations[process_key] = error_msg or "未知错误"
+            _pending_keys.discard(process_key)
 
 
 def start_eef_generation(
@@ -506,23 +514,28 @@ def start_eef_generation(
         if not p.exists():
             return False
     
-    # 检查是否已在生成中
+    # 检查是否已在生成中（包括 pending 状态）
     process_key = f"{task_id}/{episode_id}/{camera_name}"
     with _active_lock:
-        if process_key in _active_processes:
-            return True  # 已在生成中
+        if process_key in _active_processes or process_key in _pending_keys:
+            return True  # 已在生成中或已启动线程
         
         # 如果并发数达到上限，取消最旧的任务
-        if len(_active_processes) >= _MAX_CONCURRENT_GENERATIONS:
-            oldest_key = next(iter(_active_processes))
-            decode_proc, encode_proc = _active_processes[oldest_key]
-            try:
-                decode_proc.terminate()
-                encode_proc.terminate()
-            except Exception:
-                pass
-            _active_processes.pop(oldest_key, None)
-            print(f"Cancelled oldest generation {oldest_key} to make room for {process_key}")
+        total_active = len(_active_processes) + len(_pending_keys)
+        if total_active >= _MAX_CONCURRENT_GENERATIONS:
+            if _active_processes:
+                oldest_key = next(iter(_active_processes))
+                decode_proc, encode_proc = _active_processes[oldest_key]
+                try:
+                    decode_proc.terminate()
+                    encode_proc.terminate()
+                except Exception:
+                    pass
+                _active_processes.pop(oldest_key, None)
+                print(f"Cancelled oldest generation {oldest_key} to make room for {process_key}")
+        
+        # 在启动线程前标记为 pending
+        _pending_keys.add(process_key)
     
     # 启动后台线程
     thread = threading.Thread(

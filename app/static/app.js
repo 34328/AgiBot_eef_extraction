@@ -174,7 +174,7 @@ const loadHeadVideo = async (task, episode) => {
 };
 
 // 轮询检查 head 视频是否就绪
-const MAX_POLL_ATTEMPTS = 600; // 最多轮询 300 秒 (对于长视频和高负载情况)
+const MAX_POLL_ATTEMPTS = 240; // 最多轮询 120 秒 (2分钟)
 const POLL_INTERVAL = 500; // 每 500ms 检查一次
 
 const pollHeadVideo = async (task, episode, attempt) => {

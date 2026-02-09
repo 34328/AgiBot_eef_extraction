@@ -130,5 +130,5 @@ galaxea_part1/
 galaxea_subtask_label/
 rawData/
 sample_dataset/
-*.png
+/*.png
 *.mp4
