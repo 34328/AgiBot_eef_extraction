@@ -332,7 +332,7 @@ if __name__ == "__main__":
     # ==================== 配置参数 ====================
     DATA_ROOT = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta")
     TASK_ID = 327
-    EPISODE_ID = 685393
+    EPISODE_ID = 648642
     CAMERA_NAME = "head"
 
     # 模式: "frame" 单帧模式, "video" 视频模式
