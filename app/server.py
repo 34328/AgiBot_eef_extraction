@@ -8,7 +8,7 @@ import json
 import subprocess
 from flask import Flask, jsonify, render_template, send_file, abort, request
 
-from generate_eef_video import get_eef_video_path
+from generate_eef_video import get_eef_video_path, cancel_all_video_generation, check_eef_cache, start_eef_generation, is_generating, get_generation_error
 
 # 添加 agibot_utils 到路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "agibot_utils"))
@@ -213,9 +213,10 @@ def api_video(task: str, episode: str, view: str):
     if not _is_safe_dir(episode_dir) or not episode_dir.is_dir():
         abort(404)
 
-    # 对于 head 视角，优先使用带 EEF 标注的视频
+    # 对于 head 视角，必须使用带 EEF 标注的视频
     if view == "head":
-        eef_video_path = get_eef_video_path(
+        # 只返回已缓存的视频，不阻塞生成
+        eef_video_path = check_eef_cache(
             data_root=DATA_ROOT,
             task_id=int(task),
             episode_id=int(episode),
@@ -223,8 +224,11 @@ def api_video(task: str, episode: str, view: str):
         )
         if eef_video_path and eef_video_path.exists():
             return send_file(eef_video_path, mimetype="video/mp4", conditional=True)
+        else:
+            # 视频未就绪，返回 202 Accepted 表示正在处理
+            return jsonify({"status": "generating", "message": "EEF video is being generated"}), 202
     
-    # 回退到原始视频
+    # left/right 使用原始视频
     video_path = episode_dir / "videos" / VIDEO_NAMES[view]
     if not video_path.exists():
         abort(404)
@@ -232,9 +236,60 @@ def api_video(task: str, episode: str, view: str):
     return send_file(video_path, mimetype="video/mp4", conditional=True)
 
 
+@app.route("/api/prepare_video/<task>/<episode>")
+def api_prepare_video(task: str, episode: str):
+    """触发 head 视频的 EEF 生成（非阻塞）。
+    
+    前端应在选择 episode 时调用此 API 来触发视频生成。
+    返回当前状态：ready（已就绪）、generating（生成中）、started（刚开始生成）、failed（生成失败）。
+    """
+    # 检查缓存
+    cached = check_eef_cache(
+        data_root=DATA_ROOT,
+        task_id=int(task),
+        episode_id=int(episode),
+        camera_name="head",
+    )
+    if cached and cached.exists():
+        return jsonify({"status": "ready", "path": str(cached)})
+    
+    key = f"{task}/{episode}/head"
+    
+    # 检查是否有失败记录
+    error = get_generation_error(key)
+    if error:
+        return jsonify({"status": "failed", "message": error})
+    
+    # 检查是否正在生成
+    if is_generating(key):
+        return jsonify({"status": "generating"})
+    
+    # 开始后台生成
+    started = start_eef_generation(
+        data_root=DATA_ROOT,
+        task_id=int(task),
+        episode_id=int(episode),
+        camera_name="head",
+    )
+    if started:
+        return jsonify({"status": "started"})
+    else:
+        return jsonify({"status": "error", "message": "Failed to start generation"}), 500
+
+
 @app.route("/api/meta/<task>/<episode>")
 def api_meta(task: str, episode: str):
     return jsonify(_cached_meta(task, episode))
+
+
+@app.route("/api/cancel_video_generation", methods=["POST"])
+def api_cancel_video_generation():
+    """取消所有正在进行的视频生成任务。
+    
+    前端应该在切换 episode 时调用此 API。
+    """
+    cancel_all_video_generation()
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/score/<task>/<episode>", methods=["POST"])

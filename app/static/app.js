@@ -10,6 +10,7 @@ const masterVideo = videoHead;
 let isSyncing = false;
 let metaCache = {};
 let isScrubbing = false;
+let scrubRAF = null; // requestAnimationFrame ID for throttling scrub
 
 // Task Info elements
 const taskInfoPanel = document.getElementById("taskInfoPanel");
@@ -21,6 +22,10 @@ const actionsContainer = document.getElementById("actionsContainer");
 const aiScoreBtn = document.getElementById("aiScoreBtn");
 const aiScoreResult = document.getElementById("aiScoreResult");
 const aiScoreValue = document.getElementById("aiScoreValue");
+
+// Episode Navigation elements
+const prevEpisodeBtn = document.getElementById("prevEpisodeBtn");
+const nextEpisodeBtn = document.getElementById("nextEpisodeBtn");
 
 const timeline = document.getElementById("timeline");
 const timelineFill = document.getElementById("timelineFill");
@@ -83,12 +88,29 @@ const loadEpisodes = async (task) => {
   setStatus("Ready");
 };
 
-const loadVideos = (task, episode) => {
+// 当前加载的 episode 信息（用于重试机制）
+let currentTask = null;
+let currentEpisode = null;
+let headRetryCount = 0;
+const MAX_HEAD_RETRIES = 3;
+
+const loadVideos = async (task, episode) => {
   setStatus("Loading videos...", true);
+  currentTask = task;
+  currentEpisode = episode;
+  headRetryCount = 0;
+
+  // 取消之前正在进行的视频生成任务
+  try {
+    await fetch("/api/cancel_video_generation", { method: "POST" });
+  } catch (e) {
+    console.warn("Failed to cancel video generation:", e);
+  }
+
   clearVideos();
   metaCache = {};
 
-  videoHead.src = `/api/video/${task}/${episode}/head`;
+  loadHeadVideo(task, episode);
   videoLeft.src = `/api/video/${task}/${episode}/left`;
   videoRight.src = `/api/video/${task}/${episode}/right`;
 
@@ -108,10 +130,101 @@ const loadVideos = (task, episode) => {
   loadMeta(task, episode);
   loadTaskInfo(task, episode);
 
-  // Enable AI score button and reset score display
-  aiScoreBtn.disabled = false;
+  // Reset AI score display and enable button
   resetAiScore();
   aiScoreBtn.disabled = false;
+
+  // Update episode navigation buttons
+  updateEpisodeNavButtons();
+};
+
+// 单独处理 head 视频加载，使用轮询机制
+const loadHeadVideo = async (task, episode) => {
+  // 如果 episode 已经切换，不加载
+  if (task !== currentTask || episode !== currentEpisode) {
+    return;
+  }
+
+  setStatus("Preparing EEF video...", true);
+
+  // 触发后台生成
+  try {
+    const timestamp = new Date().getTime();
+    const res = await fetch(`/api/prepare_video/${task}/${episode}?t=${timestamp}`);
+    const data = await res.json();
+
+    // 如果 episode 已切换，停止
+    if (task !== currentTask || episode !== currentEpisode) {
+      return;
+    }
+
+    if (data.status === "ready") {
+      // 视频已就绪，直接加载，增加时间戳防止缓存问题
+      const timestamp = new Date().getTime();
+      videoHead.src = `/api/video/${task}/${episode}/head?t=${timestamp}`;
+      setStatus("Ready");
+      return;
+    }
+  } catch (e) {
+    console.warn("Failed to prepare video:", e);
+  }
+
+  // 视频正在生成，开始轮询
+  pollHeadVideo(task, episode, 0);
+};
+
+// 轮询检查 head 视频是否就绪
+const MAX_POLL_ATTEMPTS = 600; // 最多轮询 300 秒 (对于长视频和高负载情况)
+const POLL_INTERVAL = 500; // 每 500ms 检查一次
+
+const pollHeadVideo = async (task, episode, attempt) => {
+  // 如果 episode 已切换，停止轮询
+  if (task !== currentTask || episode !== currentEpisode) {
+    return;
+  }
+
+  if (attempt >= MAX_POLL_ATTEMPTS) {
+    setStatus("EEF video generation timeout");
+    console.error("Head video polling timeout");
+    return;
+  }
+
+  try {
+    const timestamp = new Date().getTime();
+    const res = await fetch(`/api/prepare_video/${task}/${episode}?t=${timestamp}`);
+
+    // 再次检查 episode 是否切换
+    if (task !== currentTask || episode !== currentEpisode) {
+      return;
+    }
+
+    const data = await res.json();
+
+    if (data.status === "ready") {
+      // 视频就绪，加载，增加时间戳防止缓存问题
+      const timestamp = new Date().getTime();
+      videoHead.src = `/api/video/${task}/${episode}/head?t=${timestamp}`;
+      setStatus("Ready");
+      return;
+    }
+
+    if (data.status === "failed") {
+      // 生成失败，显示错误信息
+      const errorMsg = data.message || "视频生成失败";
+      setStatus(`❌ ${errorMsg}`);
+      alert(`⚠️ Head 视频生成失败\n\n${errorMsg}\n\n该 Episode 的数据可能存在问题，请检查数据完整性。`);
+      return;
+    }
+
+    // 仍在生成，继续轮询
+    const elapsed = Math.round(attempt * POLL_INTERVAL / 1000);
+    setStatus(`Generating EEF video... ${elapsed}s`, true);
+    setTimeout(() => pollHeadVideo(task, episode, attempt + 1), POLL_INTERVAL);
+  } catch (e) {
+    console.warn("Poll failed:", e);
+    // 网络错误，等待后重试
+    setTimeout(() => pollHeadVideo(task, episode, attempt + 1), POLL_INTERVAL);
+  }
 };
 
 const loadTaskInfo = async (task, episode) => {
@@ -239,50 +352,76 @@ const updateTooltip = (clientX) => {
 const seekWithRatio = (ratio) => {
   const { duration } = getTimelineInfo();
   if (!duration) return;
-  masterVideo.currentTime = Math.max(0, Math.min(1, ratio)) * duration;
+  const targetTime = Math.max(0, Math.min(1, ratio)) * duration;
+
+  // Use fastSeek when scrubbing for better performance (if available)
+  if (isScrubbing && masterVideo.fastSeek) {
+    masterVideo.fastSeek(targetTime);
+  } else {
+    masterVideo.currentTime = targetTime;
+  }
+
+  // Also sync follower videos during scrub
+  if (isScrubbing) {
+    [videoLeft, videoRight].forEach((v) => {
+      if (v.fastSeek) {
+        v.fastSeek(targetTime);
+      } else {
+        v.currentTime = targetTime;
+      }
+    });
+  }
 };
 
 const bindTimelineEvents = () => {
   if (!timeline) return;
+
+  const performScrub = (clientX) => {
+    const rect = timeline.getBoundingClientRect();
+    seekWithRatio((clientX - rect.left) / rect.width);
+  };
+
   timeline.addEventListener("mousemove", (event) => {
     updateTooltip(event.clientX);
     if (isScrubbing) {
-      const rect = timeline.getBoundingClientRect();
-      seekWithRatio((event.clientX - rect.left) / rect.width);
+      // Use requestAnimationFrame to throttle scrub updates
+      if (scrubRAF) cancelAnimationFrame(scrubRAF);
+      scrubRAF = requestAnimationFrame(() => {
+        performScrub(event.clientX);
+      });
     }
   });
 
   timeline.addEventListener("mousedown", (event) => {
     isScrubbing = true;
-    const rect = timeline.getBoundingClientRect();
-    seekWithRatio((event.clientX - rect.left) / rect.width);
+    // Pause videos during scrub for smoother experience
+    [videoHead, videoLeft, videoRight].forEach(v => v.pause());
+    performScrub(event.clientX);
   });
 
   window.addEventListener("mouseup", () => {
-    isScrubbing = false;
+    if (isScrubbing) {
+      isScrubbing = false;
+      if (scrubRAF) {
+        cancelAnimationFrame(scrubRAF);
+        scrubRAF = null;
+      }
+    }
   });
 };
 
 const syncCurrentTime = async (time) => {
   const followers = [videoLeft, videoRight];
-  await Promise.all(
-    followers.map(
-      (video) =>
-        new Promise((resolve) => {
-          if (video.readyState >= 1) {
-            video.currentTime = time;
-            resolve();
-          } else {
-            const onMeta = () => {
-              video.removeEventListener("loadedmetadata", onMeta);
-              video.currentTime = time;
-              resolve();
-            };
-            video.addEventListener("loadedmetadata", onMeta);
-          }
-        })
-    )
-  );
+  followers.forEach((video) => {
+    if (video.readyState >= 1) {
+      // Use fastSeek when available for better performance
+      if (video.fastSeek) {
+        video.fastSeek(time);
+      } else {
+        video.currentTime = time;
+      }
+    }
+  });
 };
 
 const bindSyncEvents = () => {
@@ -366,6 +505,40 @@ bindTimelineEvents();
 
 // AI Score button event
 aiScoreBtn.addEventListener("click", requestAiScore);
+
+// Episode Navigation functions
+const updateEpisodeNavButtons = () => {
+  const options = episodeSelect.options;
+  const currentIndex = episodeSelect.selectedIndex;
+
+  // Enable/disable buttons based on position
+  prevEpisodeBtn.disabled = currentIndex <= 1; // index 0 is placeholder
+  nextEpisodeBtn.disabled = currentIndex >= options.length - 1 || currentIndex < 1;
+};
+
+const goToPrevEpisode = () => {
+  const currentIndex = episodeSelect.selectedIndex;
+  if (currentIndex <= 1) {
+    alert("已经是第一个 Episode 了，没有上一个了！");
+    return;
+  }
+  episodeSelect.selectedIndex = currentIndex - 1;
+  episodeSelect.dispatchEvent(new Event("change"));
+};
+
+const goToNextEpisode = () => {
+  const options = episodeSelect.options;
+  const currentIndex = episodeSelect.selectedIndex;
+  if (currentIndex >= options.length - 1) {
+    alert("已经是最后一个 Episode 了，没有下一个了！");
+    return;
+  }
+  episodeSelect.selectedIndex = currentIndex + 1;
+  episodeSelect.dispatchEvent(new Event("change"));
+};
+
+prevEpisodeBtn.addEventListener("click", goToPrevEpisode);
+nextEpisodeBtn.addEventListener("click", goToNextEpisode);
 
 loadTasks().catch(() => {
   setStatus("Failed to load tasks");

@@ -11,9 +11,9 @@ from prompt import genrobot_video_prompt
 # ==========================================
 # 配置部分 (请手动填写)
 # ==========================================
-API_KEY = os.getenv("OPENAI_API_KEY", "")
-BASE_URL = os.getenv("OPENAI_BASE_URL", "") 
-MODEL_NAME = os.getenv("MODEL_NAME", "") 
+API_KEY = os.getenv("OPENAI_API_KEY", "EMPTY")
+BASE_URL = os.getenv("OPENAI_BASE_URL", "http://10.3.0.86:8888/v1") 
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen3-VL-235B-A22B") 
 
 client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 

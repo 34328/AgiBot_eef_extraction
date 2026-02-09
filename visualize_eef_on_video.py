@@ -162,7 +162,7 @@ def process_video(paths, output_path):
     
     # 获取视频信息
     probe = subprocess.run(
-        f'ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate -of json "{paths["video"]}"',
+        f'ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate,nb_frames -of json "{paths["video"]}"',
         shell=True, capture_output=True, text=True
     )
     info = json.loads(probe.stdout)["streams"][0]
@@ -170,7 +170,40 @@ def process_video(paths, output_path):
     fps_parts = info["r_frame_rate"].split("/")
     fps = int(fps_parts[0]) / int(fps_parts[1]) if len(fps_parts) == 2 else float(fps_parts[0])
     
-    num_frames = min(len(pos_all), len(R_all))
+    # 获取视频帧数
+    video_frames = int(info.get("nb_frames", 0))
+    if video_frames == 0:
+        # 如果 nb_frames 不可用，用 duration 估算
+        duration_probe = subprocess.run(
+            f'ffprobe -v error -select_streams v:0 -show_entries stream=duration -of json "{paths["video"]}"',
+            shell=True, capture_output=True, text=True
+        )
+        duration_info = json.loads(duration_probe.stdout)["streams"][0]
+        duration = float(duration_info.get("duration", 0))
+        video_frames = int(duration * fps)
+    
+    eef_frames = len(pos_all)
+    extrinsic_frames = len(R_all)
+    
+    # ====== 数据质量检查 ======
+    print(f"\n{'='*60}")
+    print(f"数据质量检查:")
+    print(f"  视频帧数:      {video_frames}")
+    print(f"  EEF数据帧数:   {eef_frames}")
+    print(f"  外参数据帧数:  {extrinsic_frames}")
+    print(f"{'='*60}")
+    
+    # 检查是否一致
+    if not (video_frames == eef_frames == extrinsic_frames):
+        print(f"\n❌ 数据不一致! 无法生成视频.")
+        print(f"   原因: 视频帧数({video_frames}) / EEF帧数({eef_frames}) / 外参帧数({extrinsic_frames}) 不匹配")
+        print(f"   建议: 检查数据采集是否完整，或联系数据提供方")
+        print(f"{'='*60}\n")
+        return
+    
+    print(f"✅ 数据一致，开始生成视频...\n")
+    
+    num_frames = eef_frames
     
     # ====== 批量预计算所有帧的 2D 投影点 ======
     precompute_start = time.time()
@@ -213,7 +246,7 @@ def process_video(paths, output_path):
     encode = subprocess.Popen(
         f'ffmpeg -y -hide_banner -loglevel error -f rawvideo -pix_fmt bgr24 -s {w}x{h} -r {fps} -i - '
         f'-c:v h264_nvenc -preset p1 -rc vbr -cq 23 -pix_fmt yuv420p "{output_path}"',
-        shell=True, stdin=subprocess.PIPE, stderr=subprocess.PIPE
+        shell=True, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
     )
     
     frame_size = w * h * 3
@@ -221,40 +254,58 @@ def process_video(paths, output_path):
     labels = ["L", "R"]
     axis_colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
     
-    for i in range(num_frames):
-        raw = decode.stdout.read(frame_size)
-        if len(raw) != frame_size:
-            break
-        
-        frame = np.frombuffer(raw, np.uint8).reshape(h, w, 3).copy()
-        pts = pts_2d_all[i]
-        
-        # 绘制 EEF 点和标签
-        for j in range(2):
-            x, y = pts[j]
-            if 0 <= x < w and 0 <= y < h:
-                cv2.circle(frame, (x, y), 8, colors[j], -1)
-                cv2.putText(frame, labels[j], (x+10, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, colors[j], 2)
-                
-                # 绘制坐标轴
-                if axes_2d_all:
-                    for k in range(3):
-                        ax, ay = axes_2d_all[i][j][k]
-                        if 0 <= ax < w and 0 <= ay < h:
-                            cv2.line(frame, (x, y), (ax, ay), axis_colors[k], 2)
-        
-        # 帧信息
-        info = f"Frame {i} | L:({pts[0,0]},{pts[0,1]}) R:({pts[1,0]},{pts[1,1]})"
-        cv2.putText(frame, info, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
-        encode.stdin.write(frame.tobytes())
-        
-        if (i + 1) % 500 == 0:
-            print(f"  {i+1}/{num_frames} ({100*(i+1)/num_frames:.0f}%)")
+    # 预分配帧缓冲区提速
+    frame_buffer = np.zeros((h, w, 3), dtype=np.uint8)
     
-    encode.stdin.close()
-    encode.wait()
-    decode.wait()
+    try:
+        for i in range(num_frames):
+            raw = decode.stdout.read(frame_size)
+            if len(raw) != frame_size:
+                break
+            
+            # 使用 copyto 避免频繁分配内存
+            np.copyto(frame_buffer, np.frombuffer(raw, np.uint8).reshape(h, w, 3))
+            pts = pts_2d_all[i]
+            
+            # 绘制 EEF 点和标签
+            for j in range(2):
+                x, y = pts[j]
+                if 0 <= x < w and 0 <= y < h:
+                    cv2.circle(frame_buffer, (x, y), 8, colors[j], -1)
+                    # cv2.putText(frame_buffer, labels[j], (x+10, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, colors[j], 2)
+                    
+                    if axes_2d_all:
+                        for k in range(3):
+                            ax, ay = axes_2d_all[i][j][k]
+                            if 0 <= ax < w and 0 <= ay < h:
+                                cv2.line(frame_buffer, (x, y), (ax, ay), axis_colors[k], 2)
+            
+            # 帧信息 (每 100 帧画一次以提速)
+            if i % 100 == 0:
+                info = f"Frame {i}/{num_frames}"
+                cv2.putText(frame_buffer, info, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            encode.stdin.write(frame_buffer.tobytes())
+            
+            if (i + 1) % 500 == 0:
+                print(f"  {i+1}/{num_frames} ({100*(i+1)/num_frames:.0f}%)")
+    finally:
+        # 确保进程被正确清理
+        if decode and decode.poll() is None:
+            try:
+                decode.terminate()
+                decode.wait(timeout=2)
+            except Exception:
+                decode.kill()
+        if encode and encode.poll() is None:
+            try:
+                encode.stdin.close()
+            except Exception:
+                pass
+            try:
+                encode.wait(timeout=2)
+            except Exception:
+                encode.kill()
     
     elapsed = time.time() - start_time
     print(f"Done! Output: {output_path} ({elapsed:.1f}s, {num_frames/elapsed:.1f} fps)")
@@ -280,8 +331,8 @@ if __name__ == "__main__":
 
     # ==================== 配置参数 ====================
     DATA_ROOT = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta")
-    TASK_ID = 351
-    EPISODE_ID = 777217
+    TASK_ID = 327
+    EPISODE_ID = 685393
     CAMERA_NAME = "head"
 
     # 模式: "frame" 单帧模式, "video" 视频模式
