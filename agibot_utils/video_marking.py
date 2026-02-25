@@ -7,7 +7,11 @@ import base64
 import os
 
 from openai import OpenAI
-from prompt import genrobot_video_prompt
+try:
+    from agibot_utils.prompt import genrobot_video_prompt
+except ModuleNotFoundError:
+    # Fallback for running this module directly from agibot_utils directory.
+    from prompt import genrobot_video_prompt
 # ==========================================
 # 配置部分 (请手动填写)
 # ==========================================
@@ -151,4 +155,3 @@ def score_video(video_path, verbose=True):
 #     else:
 #         print(f"评分测试失败。")
 #     print(f"==============================")
-

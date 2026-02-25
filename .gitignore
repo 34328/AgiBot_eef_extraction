@@ -132,3 +132,4 @@ rawData/
 sample_dataset/
 /*.png
 *.mp4
+.waylog
