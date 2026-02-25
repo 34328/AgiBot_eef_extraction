@@ -10,13 +10,14 @@ from flask import Flask, jsonify, render_template, send_file, abort, request
 
 from generate_eef_video import get_eef_video_path, cancel_all_video_generation, check_eef_cache, start_eef_generation, is_generating, get_generation_error
 
-# 添加 agibot_utils 到路径
-sys.path.insert(0, str(Path(__file__).parent.parent / "agibot_utils"))
-from video_marking import score_video
+# 添加项目根目录到路径，确保 agibot_utils / urdf_solver 都可导入
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from agibot_utils.video_marking import score_video
 
 # 数据根目录
 DATA_ROOT = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta")
 BASE_DIR = DATA_ROOT / "observations"
+FILTER_FILE = Path(__file__).parent / "dataFilter.jsonl"
 
 VIDEO_NAMES = {
     "head": "head_color.mp4",
@@ -25,6 +26,44 @@ VIDEO_NAMES = {
 }
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+
+
+def _load_filter_records() -> list[dict]:
+    if not FILTER_FILE.exists():
+        return []
+    records: list[dict] = []
+    try:
+        with FILTER_FILE.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                if not item.get("task") or not item.get("episode"):
+                    continue
+                if not isinstance(item.get("start_frame"), int) or not isinstance(item.get("end_frame"), int):
+                    continue
+                records.append({
+                    "task": str(item["task"]),
+                    "episode": str(item["episode"]),
+                    "start_frame": item["start_frame"],
+                    "end_frame": item["end_frame"],
+                })
+    except OSError:
+        return []
+    return records
+
+
+def _write_filter_records(records: list[dict]) -> None:
+    FILTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with FILTER_FILE.open("w", encoding="utf-8") as f:
+        for item in records:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
 def _is_safe_dir(path: Path) -> bool:
@@ -313,6 +352,61 @@ def api_score(task: str, episode: str):
             return jsonify({"error": "Failed to get score from AI"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/filter/<task>/<episode>")
+def api_get_filter(task: str, episode: str):
+    records = _load_filter_records()
+    for item in records:
+        if item["task"] == str(task) and item["episode"] == str(episode):
+            return jsonify({
+                "range": {
+                    "start_frame": item["start_frame"],
+                    "end_frame": item["end_frame"],
+                }
+            })
+    return jsonify({"range": None})
+
+
+@app.route("/api/filter", methods=["POST"])
+def api_save_filter():
+    payload = request.get_json(silent=True) or {}
+    task = payload.get("task")
+    episode = payload.get("episode")
+    start_frame = payload.get("start_frame")
+    end_frame = payload.get("end_frame")
+    total_frames = payload.get("total_frames")
+
+    if not task or not episode:
+        return jsonify({"error": "task and episode are required"}), 400
+    if not isinstance(start_frame, int) or not isinstance(end_frame, int):
+        return jsonify({"error": "start_frame and end_frame must be integers"}), 400
+    if start_frame < 0 or end_frame < start_frame:
+        return jsonify({"error": "invalid frame range"}), 400
+
+    is_full_range = False
+    if isinstance(total_frames, int) and total_frames > 0:
+        is_full_range = start_frame == 0 and end_frame >= total_frames - 1
+
+    records = _load_filter_records()
+    filtered = [
+        item for item in records
+        if not (item["task"] == str(task) and item["episode"] == str(episode))
+    ]
+    if not is_full_range:
+        filtered.append({
+            "task": str(task),
+            "episode": str(episode),
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+        })
+
+    try:
+        _write_filter_records(filtered)
+    except OSError as e:
+        return jsonify({"error": f"failed to write filter file: {e}"}), 500
+
+    return jsonify({"status": "ok", "saved": not is_full_range})
 
 
 if __name__ == "__main__":

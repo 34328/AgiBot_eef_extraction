@@ -62,18 +62,37 @@
       <div class="header">
         <h1>Three-View Playback</h1>
         <p>Choose a task and episode to load head, left-hand, and right-hand cameras.</p>
+        <div class="mode-toggle-wrap">
+          <button
+            id="viewEditToggle"
+            class="view-edit-toggle"
+            type="button"
+            aria-pressed="false"
+            aria-label="Switch between View and Edit mode"
+          >
+            <span class="view-edit-option">View</span>
+            <span class="view-edit-option">Edit</span>
+            <span class="view-edit-thumb" aria-hidden="true"></span>
+          </button>
+        </div>
       </div>
 
       <section class="grid">
         <div class="card card--head">
           <div class="card-title">Head Camera</div>
           <video id="videoHead" controls preload="metadata"></video>
-          <div class="timeline" id="timeline">
-            <div class="timeline-track">
-              <div class="timeline-fill" id="timelineFill"></div>
-              <div class="timeline-thumb" id="timelineThumb"></div>
+          <div class="timeline-row">
+            <div class="timeline" id="timeline">
+              <div class="timeline-track" id="timelineTrack">
+                <div class="timeline-range" id="timelineRange"></div>
+                <div class="timeline-fill" id="timelineFill"></div>
+                <button class="timeline-handle timeline-handle--start" id="timelineStartHandle" type="button" aria-label="Start frame handle"></button>
+                <button class="timeline-handle timeline-handle--end" id="timelineEndHandle" type="button" aria-label="End frame handle"></button>
+                <div class="timeline-thumb" id="timelineThumb"></div>
+              </div>
+              <div class="timeline-tooltip" id="timelineTooltip">0/0</div>
             </div>
-            <div class="timeline-tooltip" id="timelineTooltip">0/0</div>
+            <button class="trim-save-btn" id="trimSaveBtn" type="button">Save</button>
           </div>
           <!-- AI Score Section -->
           <div class="ai-score-section">

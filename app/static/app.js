@@ -28,9 +28,22 @@ const prevEpisodeBtn = document.getElementById("prevEpisodeBtn");
 const nextEpisodeBtn = document.getElementById("nextEpisodeBtn");
 
 const timeline = document.getElementById("timeline");
+const timelineTrack = document.getElementById("timelineTrack");
+const timelineRange = document.getElementById("timelineRange");
 const timelineFill = document.getElementById("timelineFill");
 const timelineThumb = document.getElementById("timelineThumb");
 const timelineTooltip = document.getElementById("timelineTooltip");
+const timelineStartHandle = document.getElementById("timelineStartHandle");
+const timelineEndHandle = document.getElementById("timelineEndHandle");
+const trimSaveBtn = document.getElementById("trimSaveBtn");
+const viewEditToggle = document.getElementById("viewEditToggle");
+
+let isEditMode = false;
+let rangeStartRatio = 0;
+let rangeEndRatio = 1;
+let activeRangeHandle = null;
+let pendingInitialNudge = false;
+let saveFeedbackTimer = null;
 
 const setStatus = (text, isLoading = false) => {
   statusText.textContent = text;
@@ -109,6 +122,8 @@ const loadVideos = async (task, episode) => {
 
   clearVideos();
   metaCache = {};
+  resetRangeSelection();
+  setTrimSaveVisual("idle");
 
   loadHeadVideo(task, episode);
   videoLeft.src = `/api/video/${task}/${episode}/left`;
@@ -127,7 +142,15 @@ const loadVideos = async (task, episode) => {
     v.onloadeddata = checkLoaded;
   });
 
-  loadMeta(task, episode);
+  await loadMeta(task, episode);
+  await loadSavedRange(task, episode);
+  pendingInitialNudge = isEditMode;
+  if (isEditMode) {
+    nudgePlayheadAfterRangeStart();
+    if (masterVideo.duration) {
+      pendingInitialNudge = false;
+    }
+  }
   loadTaskInfo(task, episode);
 
   // Reset AI score display and enable button
@@ -318,41 +341,177 @@ const getTimelineInfo = () => {
   return { duration, frames, fps };
 };
 
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const getTotalFrames = () => {
+  const { duration, frames, fps } = getTimelineInfo();
+  if (Number.isInteger(frames) && frames > 1) return frames;
+  if (duration > 0 && fps) {
+    const estimated = Math.round(duration * fps);
+    if (estimated > 1) return estimated;
+  }
+  return 1;
+};
+
+const frameToRatio = (frame) => {
+  const total = getTotalFrames();
+  if (total <= 1) return 0;
+  return clamp(frame / (total - 1), 0, 1);
+};
+
+const ratioToFrame = (ratio) => {
+  const total = getTotalFrames();
+  if (total <= 1) return 0;
+  return Math.round(clamp(ratio, 0, 1) * (total - 1));
+};
+
+const getActiveRange = () => {
+  if (!isEditMode) {
+    return { startRatio: 0, endRatio: 1 };
+  }
+  return { startRatio: rangeStartRatio, endRatio: rangeEndRatio };
+};
+
+const getCurrentRangeFrames = () => ({
+  startFrame: ratioToFrame(rangeStartRatio),
+  endFrame: ratioToFrame(rangeEndRatio),
+  totalFrames: getTotalFrames(),
+});
+
+const resetRangeSelection = () => {
+  rangeStartRatio = 0;
+  rangeEndRatio = 1;
+  renderTimelineRange();
+};
+
+const setTrimSaveVisual = (state) => {
+  if (!trimSaveBtn) return;
+  if (saveFeedbackTimer) {
+    clearTimeout(saveFeedbackTimer);
+    saveFeedbackTimer = null;
+  }
+
+  trimSaveBtn.classList.remove("is-saving", "is-saved", "is-error");
+  trimSaveBtn.disabled = false;
+
+  if (state === "saving") {
+    trimSaveBtn.classList.add("is-saving");
+    trimSaveBtn.textContent = "Saving...";
+    trimSaveBtn.disabled = true;
+    return;
+  }
+
+  if (state === "saved") {
+    trimSaveBtn.classList.add("is-saved");
+    trimSaveBtn.textContent = "Saved";
+    saveFeedbackTimer = setTimeout(() => setTrimSaveVisual("idle"), 1200);
+    return;
+  }
+
+  if (state === "cleared") {
+    trimSaveBtn.classList.add("is-saved");
+    trimSaveBtn.textContent = "Cleared";
+    saveFeedbackTimer = setTimeout(() => setTrimSaveVisual("idle"), 1200);
+    return;
+  }
+
+  if (state === "error") {
+    trimSaveBtn.classList.add("is-error");
+    trimSaveBtn.textContent = "Retry";
+    saveFeedbackTimer = setTimeout(() => setTrimSaveVisual("idle"), 1800);
+    return;
+  }
+
+  trimSaveBtn.textContent = "Save";
+};
+
+const renderTimelineRange = () => {
+  if (!timelineRange || !timelineStartHandle || !timelineEndHandle) return;
+  const startPercent = rangeStartRatio * 100;
+  const endPercent = rangeEndRatio * 100;
+  timelineRange.style.left = `${startPercent}%`;
+  timelineRange.style.width = `${Math.max(0, endPercent - startPercent)}%`;
+  timelineStartHandle.style.left = `${startPercent}%`;
+  timelineEndHandle.style.left = `${endPercent}%`;
+};
+
+const setAllVideoTime = (time) => {
+  [videoHead, videoLeft, videoRight].forEach((v) => {
+    if (v.readyState < 1) return;
+    if (v.fastSeek) {
+      v.fastSeek(time);
+    } else {
+      v.currentTime = time;
+    }
+  });
+};
+
 const updateTimeline = () => {
   const { duration } = getTimelineInfo();
   if (!duration) {
+    timelineFill.style.left = "0%";
     timelineFill.style.width = "0%";
     timelineThumb.style.left = "0%";
+    timelineThumb.classList.remove("is-overlap-start", "is-overlap-end");
     return;
   }
-  const progress = masterVideo.currentTime / duration;
-  const percent = Math.max(0, Math.min(1, progress)) * 100;
-  timelineFill.style.width = `${percent}%`;
-  timelineThumb.style.left = `${percent}%`;
+  const rawProgress = clamp(masterVideo.currentTime / duration, 0, 1);
+  if (!isEditMode) {
+    const percent = rawProgress * 100;
+    timelineFill.style.left = "0%";
+    timelineFill.style.width = `${percent}%`;
+    timelineThumb.style.left = `${percent}%`;
+    timelineThumb.classList.remove("is-overlap-start", "is-overlap-end");
+    return;
+  }
+
+  const startRatio = rangeStartRatio;
+  const endRatio = rangeEndRatio;
+  const bounded = clamp(rawProgress, startRatio, endRatio);
+  const startPercent = startRatio * 100;
+  const endPercent = endRatio * 100;
+  const thumbPercent = bounded * 100;
+
+  timelineFill.style.left = `${startPercent}%`;
+  timelineFill.style.width = `${Math.max(0, thumbPercent - startPercent)}%`;
+  timelineThumb.style.left = `${thumbPercent}%`;
+
+  const trackWidth = timelineTrack?.getBoundingClientRect().width || 0;
+  const gapPercent = trackWidth > 0 ? (10 / trackWidth) * 100 : 0.8;
+  const nearStart = Math.abs(thumbPercent - startPercent) <= gapPercent;
+  const nearEnd = Math.abs(thumbPercent - endPercent) <= gapPercent;
+  timelineThumb.classList.toggle("is-overlap-start", nearStart && !nearEnd);
+  timelineThumb.classList.toggle("is-overlap-end", nearEnd && !nearStart);
 };
 
 const updateTooltip = (clientX) => {
-  const rect = timeline.getBoundingClientRect();
+  if (!timelineTrack) return;
+  const rect = timelineTrack.getBoundingClientRect();
   const x = Math.min(Math.max(clientX - rect.left, 0), rect.width);
-  const ratio = rect.width ? x / rect.width : 0;
+  const ratioOnUi = rect.width ? x / rect.width : 0;
+  const { startRatio, endRatio } = getActiveRange();
+  const ratio = isEditMode ? clamp(ratioOnUi, startRatio, endRatio) : ratioOnUi;
   const { duration, frames, fps } = getTimelineInfo();
   let currentFrame = 0;
   let totalFrames = 0;
   if (frames) {
     totalFrames = frames;
-    currentFrame = Math.round(frames * ratio);
+    currentFrame = ratioToFrame(ratio);
   } else if (duration && fps) {
     totalFrames = Math.round(duration * fps);
-    currentFrame = Math.round(totalFrames * ratio);
+    currentFrame = ratioToFrame(ratio);
   }
   timelineTooltip.textContent = `${currentFrame}/${totalFrames}`;
   timelineTooltip.style.left = `${x}px`;
 };
 
-const seekWithRatio = (ratio) => {
+const seekWithRatio = (ratioOnUi) => {
   const { duration } = getTimelineInfo();
   if (!duration) return;
-  const targetTime = Math.max(0, Math.min(1, ratio)) * duration;
+  const ratio = clamp(ratioOnUi, 0, 1);
+  const { startRatio, endRatio } = getActiveRange();
+  const effectiveRatio = isEditMode ? clamp(ratio, startRatio, endRatio) : ratio;
+  const targetTime = effectiveRatio * duration;
 
   // Use fastSeek when scrubbing for better performance (if available)
   if (isScrubbing && masterVideo.fastSeek) {
@@ -373,15 +532,53 @@ const seekWithRatio = (ratio) => {
   }
 };
 
+const enforceEditPlaybackRange = () => {
+  if (!isEditMode) return;
+  const { duration } = getTimelineInfo();
+  if (!duration) return;
+  const startTime = duration * rangeStartRatio;
+  const endTime = duration * rangeEndRatio;
+  const epsilon = 1 / 120;
+  if (masterVideo.currentTime < startTime) {
+    setAllVideoTime(startTime);
+    return;
+  }
+  if (masterVideo.currentTime > endTime - epsilon) {
+    setAllVideoTime(endTime);
+    [videoHead, videoLeft, videoRight].forEach((v) => v.pause());
+  }
+};
+
+const nudgePlayheadAfterRangeStart = () => {
+  const { duration } = getTimelineInfo();
+  if (!duration) return;
+  const total = getTotalFrames();
+  const startFrame = ratioToFrame(rangeStartRatio);
+  const targetFrame = total > 1 ? Math.min(startFrame + 1, total - 1) : startFrame;
+  const targetRatio = frameToRatio(targetFrame);
+  const targetTime = targetRatio * duration;
+  setAllVideoTime(targetTime);
+  updateTimeline();
+};
+
+const applyFrameRange = (startFrame, endFrame) => {
+  const total = getTotalFrames();
+  const safeStart = clamp(startFrame, 0, Math.max(0, total - 1));
+  const safeEnd = clamp(endFrame, safeStart, Math.max(0, total - 1));
+  rangeStartRatio = frameToRatio(safeStart);
+  rangeEndRatio = frameToRatio(safeEnd);
+  renderTimelineRange();
+};
+
 const bindTimelineEvents = () => {
-  if (!timeline) return;
+  if (!timeline || !timelineTrack || !timelineThumb) return;
 
   const performScrub = (clientX) => {
-    const rect = timeline.getBoundingClientRect();
+    const rect = timelineTrack.getBoundingClientRect();
     seekWithRatio((clientX - rect.left) / rect.width);
   };
 
-  timeline.addEventListener("mousemove", (event) => {
+  timelineTrack.addEventListener("mousemove", (event) => {
     updateTooltip(event.clientX);
     if (isScrubbing) {
       // Use requestAnimationFrame to throttle scrub updates
@@ -392,11 +589,30 @@ const bindTimelineEvents = () => {
     }
   });
 
-  timeline.addEventListener("mousedown", (event) => {
+  timelineTrack.addEventListener("mousedown", (event) => {
+    if (activeRangeHandle) return;
     isScrubbing = true;
     // Pause videos during scrub for smoother experience
     [videoHead, videoLeft, videoRight].forEach(v => v.pause());
     performScrub(event.clientX);
+  });
+
+  timelineThumb.addEventListener("mousedown", (event) => {
+    if (!timelineThumb || activeRangeHandle) return;
+    event.preventDefault();
+    event.stopPropagation();
+    isScrubbing = true;
+    [videoHead, videoLeft, videoRight].forEach(v => v.pause());
+    performScrub(event.clientX);
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!isScrubbing) return;
+    if (scrubRAF) cancelAnimationFrame(scrubRAF);
+    scrubRAF = requestAnimationFrame(() => {
+      performScrub(event.clientX);
+      updateTooltip(event.clientX);
+    });
   });
 
   window.addEventListener("mouseup", () => {
@@ -407,6 +623,7 @@ const bindTimelineEvents = () => {
         scrubRAF = null;
       }
     }
+    activeRangeHandle = null;
   });
 };
 
@@ -427,6 +644,16 @@ const syncCurrentTime = async (time) => {
 const bindSyncEvents = () => {
   masterVideo.addEventListener("play", async () => {
     if (isSyncing) return;
+    if (isEditMode) {
+      const { duration } = getTimelineInfo();
+      if (duration > 0) {
+        const startTime = duration * rangeStartRatio;
+        const endTime = duration * rangeEndRatio;
+        if (masterVideo.currentTime < startTime || masterVideo.currentTime > endTime) {
+          setAllVideoTime(startTime);
+        }
+      }
+    }
     isSyncing = true;
     try {
       await syncCurrentTime(masterVideo.currentTime);
@@ -450,13 +677,23 @@ const bindSyncEvents = () => {
     isSyncing = true;
     try {
       await syncCurrentTime(masterVideo.currentTime);
+      enforceEditPlaybackRange();
     } finally {
       isSyncing = false;
     }
   });
 
-  masterVideo.addEventListener("timeupdate", updateTimeline);
-  masterVideo.addEventListener("loadedmetadata", updateTimeline);
+  masterVideo.addEventListener("timeupdate", () => {
+    enforceEditPlaybackRange();
+    updateTimeline();
+  });
+  masterVideo.addEventListener("loadedmetadata", () => {
+    updateTimeline();
+    if (pendingInitialNudge && isEditMode) {
+      nudgePlayheadAfterRangeStart();
+      pendingInitialNudge = false;
+    }
+  });
 };
 
 const loadMeta = async (task, episode) => {
@@ -469,13 +706,146 @@ const loadMeta = async (task, episode) => {
     const right = data.right?.frames;
     if (head == null || left == null || right == null) {
       setStatus("Frame info unavailable");
-      return;
+      return data;
     }
     const allEqual = head === left && head === right;
     setStatus(allEqual ? "Frames OK" : "Frames mismatch");
+    return data;
   } catch {
     setStatus("Frame info unavailable");
+    return null;
   }
+};
+
+const loadSavedRange = async (task, episode) => {
+  try {
+    const res = await fetch(`/api/filter/${task}/${episode}`);
+    if (!res.ok) {
+      resetRangeSelection();
+      renderTimelineRange();
+      return;
+    }
+    const data = await res.json();
+
+    if (task !== currentTask || episode !== currentEpisode) {
+      return;
+    }
+
+    const saved = data?.range;
+    if (
+      saved &&
+      Number.isInteger(saved.start_frame) &&
+      Number.isInteger(saved.end_frame) &&
+      saved.end_frame >= saved.start_frame
+    ) {
+      applyFrameRange(saved.start_frame, saved.end_frame);
+    } else {
+      resetRangeSelection();
+    }
+    renderTimelineRange();
+  } catch {
+    resetRangeSelection();
+    renderTimelineRange();
+  }
+};
+
+const updateRangeFromPointer = (clientX) => {
+  if (!activeRangeHandle || !timelineTrack) return;
+  const rect = timelineTrack.getBoundingClientRect();
+  const ratio = rect.width ? clamp((clientX - rect.left) / rect.width, 0, 1) : 0;
+  const minGap = 1 / Math.max(1, getTotalFrames() - 1);
+  if (activeRangeHandle === "start") {
+    rangeStartRatio = clamp(Math.min(ratio, rangeEndRatio - minGap), 0, 1);
+  } else {
+    rangeEndRatio = clamp(Math.max(ratio, rangeStartRatio + minGap), 0, 1);
+  }
+  renderTimelineRange();
+  enforceEditPlaybackRange();
+  updateTimeline();
+};
+
+const bindRangeHandleEvents = () => {
+  if (!timelineStartHandle || !timelineEndHandle) return;
+
+  timelineStartHandle.addEventListener("mousedown", (event) => {
+    if (!isEditMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    activeRangeHandle = "start";
+  });
+
+  timelineEndHandle.addEventListener("mousedown", (event) => {
+    if (!isEditMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    activeRangeHandle = "end";
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!activeRangeHandle) return;
+    updateRangeFromPointer(event.clientX);
+  });
+};
+
+const saveRangeSelection = async () => {
+  const task = taskSelect.value;
+  const episode = episodeSelect.value;
+  if (!task || !episode || !isEditMode) return;
+  const { startFrame, endFrame, totalFrames } = getCurrentRangeFrames();
+
+  try {
+    setTrimSaveVisual("saving");
+    const res = await fetch("/api/filter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task,
+        episode,
+        start_frame: startFrame,
+        end_frame: endFrame,
+        total_frames: totalFrames,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || "Save failed");
+      setTrimSaveVisual("error");
+      return;
+    }
+    setStatus(data.saved ? "Range saved" : "Full range cleared");
+    setTrimSaveVisual(data.saved ? "saved" : "cleared");
+  } catch {
+    setStatus("Save failed");
+    setTrimSaveVisual("error");
+  }
+};
+
+const setModeState = (isEdit) => {
+  if (!viewEditToggle) return;
+  const wasEdit = isEditMode;
+  isEditMode = isEdit;
+  viewEditToggle.classList.toggle("is-edit", isEdit);
+  viewEditToggle.setAttribute("aria-pressed", isEdit ? "true" : "false");
+  document.body.dataset.mode = isEdit ? "edit" : "view";
+  renderTimelineRange();
+  updateTimeline();
+  if (isEdit && !wasEdit) {
+    nudgePlayheadAfterRangeStart();
+    pendingInitialNudge = false;
+    setTrimSaveVisual("idle");
+  } else if (!isEdit) {
+    pendingInitialNudge = false;
+    setTrimSaveVisual("idle");
+  }
+};
+
+const bindModeToggle = () => {
+  if (!viewEditToggle) return;
+  setModeState(false);
+  viewEditToggle.addEventListener("click", () => {
+    const isEdit = viewEditToggle.getAttribute("aria-pressed") !== "true";
+    setModeState(isEdit);
+  });
 };
 
 taskSelect.addEventListener("change", () => {
@@ -502,9 +872,12 @@ episodeSelect.addEventListener("change", () => {
 
 bindSyncEvents();
 bindTimelineEvents();
+bindRangeHandleEvents();
+bindModeToggle();
 
 // AI Score button event
 aiScoreBtn.addEventListener("click", requestAiScore);
+trimSaveBtn.addEventListener("click", saveRangeSelection);
 
 // Episode Navigation functions
 const updateEpisodeNavButtons = () => {
