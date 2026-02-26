@@ -17,7 +17,7 @@ from agibot_utils.video_marking import score_video
 # 数据根目录
 DATA_ROOT = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta")
 BASE_DIR = DATA_ROOT / "observations"
-FILTER_FILE = Path(__file__).parent / "dataFilter.jsonl"
+FILTER_FILE = Path(__file__).resolve().parent.parent / "filter_store" / "still_frames.jsonl"
 
 VIDEO_NAMES = {
     "head": "head_color.mp4",

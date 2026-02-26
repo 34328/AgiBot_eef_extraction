@@ -1,7 +1,8 @@
-import argparse
 import gc
+import tyro
 import shutil
 import tempfile
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -264,15 +265,30 @@ def main(
         ray.shutdown()
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--src-path", type=Path, required=True)
-    parser.add_argument("--output-path", type=Path, required=True)
-    parser.add_argument("--eef-type", type=str, choices=["gripper", "dexhand", "tactile"], default="gripper")
-    parser.add_argument("--task-ids", type=str, nargs="+", help="task_327 task_351 ...", default=[])
-    parser.add_argument("--cpus-per-task", type=int, default=3)
-    parser.add_argument("--save-depth", action="store_true")
-    parser.add_argument("--debug", action="store_true")
-    args = parser.parse_args()
+@dataclass
+class ArgsConfig:
+    # 原始 AgiBotWorld 数据根目录，内部应包含 task_info/ observations/ proprio_stats/ parameters
+    src_path: Path = Path("/mnt/raid0/AgiBot2Lerobot/AgiBot_Word_Beta")
 
-    main(**vars(args))
+    # LeRobot 数据集输出根目录，最终会写入 output_path/agibotworld/task_xxx
+    output_path: Path = Path("/mnt/raid0/AgiBot2Lerobot/lerobot_v3.0")
+
+    # 数据类型：gripper / dexhand / tactile，用于选择 task 配置和过滤规则
+    eef_type: str = "gripper"
+
+    # 要处理的任务列表（如 ["task_694"]）；为空时按 eef_type 自动筛选
+    task_ids: list[str] = field(default_factory=lambda: ["task_351"])
+
+    # 非 debug 并行模式下，每个 Ray 任务占用的 CPU 核数
+    cpus_per_task: int = 3
+
+    # 是否保存头部深度图（observation.states.head_depth）
+    save_depth: bool = True
+
+    # 调试模式：只处理筛选结果中的第一个任务
+    debug: bool = True
+
+
+if __name__ == "__main__":
+    cfg = tyro.cli(ArgsConfig)
+    main(**asdict(cfg))
