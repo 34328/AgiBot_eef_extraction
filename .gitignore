@@ -133,3 +133,6 @@ sample_dataset/
 /*.png
 *.mp4
 .waylog
+
+# VL judge frames (large generated images, do not commit)
+filter_store/vl_frames_*/
