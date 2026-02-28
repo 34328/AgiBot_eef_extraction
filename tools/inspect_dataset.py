@@ -13,7 +13,7 @@ def inspect_dataset(dataset_path: str):
     print("=" * 80)
     
     # Load the dataset
-    dataset = LeRobotDataset(repo_id=Path(dataset_path).name, root=dataset_path, episodes=[208])
+    dataset = LeRobotDataset(repo_id=Path(dataset_path).name, root=dataset_path, episodes=[1])
     
     # Print basic dataset info
     print("\n📊 Basic Dataset Information:")
